@@ -58,9 +58,6 @@ export interface SavingsContractContextValue {
   getUserGroups: (address: string) => Promise<string[]>
   getAllGroups: () => Promise<string[]>
   
-  // Group info methods
-  getGroupName: (groupId: string) => Promise<string>
-  
   // Transaction methods
   createGroup: (params: CreateGroupParams) => Promise<rpc.Api.GetSuccessfulTransactionResponse>
   joinGroup: (groupId?: string) => Promise<rpc.Api.GetSuccessfulTransactionResponse>
@@ -403,28 +400,6 @@ export function SavingsContractProvider({ children }: { children: React.ReactNod
     }
   }, [simulateCall])
 
-  // Create a cache for group names
-  const groupNameCache = React.useMemo(() => new Map<string, string>(), [])
-
-  const getGroupName = React.useCallback(async (groupId: string): Promise<string> => {
-    // Check cache first
-    if (groupNameCache.has(groupId)) {
-      return groupNameCache.get(groupId)!
-    }
-
-    try {
-      const group = await getGroupById(groupId)
-      const name = group.name
-      // Cache the result
-      groupNameCache.set(groupId, name)
-      return name
-    } catch (error) {
-      console.error(`Failed to fetch group name for ${groupId}:`, error)
-      // Fallback to shortened group ID if fetching fails
-      return `${groupId.slice(0, 4)}...${groupId.slice(-4)}`
-    }
-  }, [getGroupById, groupNameCache])
-
   // ===== TRANSACTION METHODS =====
   
   const createGroup = React.useCallback(async (p: CreateGroupParams) => {
@@ -510,9 +485,6 @@ export function SavingsContractProvider({ children }: { children: React.ReactNod
     // User and discovery methods
     getUserGroups, getAllGroups,
     
-    // Group info methods
-    getGroupName,
-    
     // Transaction methods
     createGroup, joinGroup, contribute,
     
@@ -529,9 +501,6 @@ export function SavingsContractProvider({ children }: { children: React.ReactNod
     
     // User and discovery methods
     getUserGroups, getAllGroups,
-    
-    // Group info methods
-    getGroupName,
     
     // Transaction methods
     createGroup, joinGroup, contribute,

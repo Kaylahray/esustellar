@@ -1,38 +1,36 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowDownLeft, ArrowUpRight, Users, CheckCircle, Plus, Loader2 } from "lucide-react"
 import { useWallet } from "@/hooks/use-wallet"
-import { fetchRecentActivity, Activity } from "@/lib/activityFeed"
 import { useSavingsContract } from "@/context/savingsContract"
-import Link from "next/link"
+import { fetchRecentActivity, Activity } from "@/lib/activityFeed"
 
 export function RecentActivity() {
   const { publicKey } = useWallet()
-  const { getGroupName } = useSavingsContract()
+  const { getGroupById } = useSavingsContract()
   const [activities, setActivities] = useState<Activity[]>([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     async function loadActivities() {
-      if (publicKey) {
-        setLoading(true)
-        try {
-          const data = await fetchRecentActivity(publicKey, getGroupName)
-          setActivities(data)
-        } catch (error) {
-          console.error('Error loading activities:', error)
-        } finally {
-          setLoading(false)
-        }
-      } else {
+      if (!publicKey) {
         setActivities([])
+        return
+      }
+      setLoading(true)
+      try {
+        const data = await fetchRecentActivity(publicKey, getGroupById)
+        setActivities(data)
+      } finally {
+        setLoading(false)
       }
     }
 
     loadActivities()
-  }, [publicKey, getGroupName])
+  }, [publicKey, getGroupById])
 
   return (
     <Card className="border-border bg-card">
@@ -55,21 +53,13 @@ export function RecentActivity() {
                 <ActivityIcon type={activity.type} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-foreground">
-                    {activity.description}
-                    {activity.roundNumber !== undefined && (
-                      <span className="text-muted-foreground ml-1">(Round {activity.roundNumber})</span>
-                    )}
+                    {/* If the activity has a groupId, make the group name a clickable link */}
+                    {activity.groupId && activity.groupName
+                      ? renderDescriptionWithLink(activity)
+                      : activity.description}
                   </p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-xs text-muted-foreground">{activity.time}</span>
-                    {activity.groupId && (
-                      <Link
-                        href={`/groups/${activity.groupId}`}
-                        className="text-xs text-stellar hover:underline"
-                      >
-                        View Group
-                      </Link>
-                    )}
                     {activity.txHash && (
                       <a
                         href={`https://stellar.expert/explorer/testnet/tx/${activity.txHash}`}
@@ -84,14 +74,11 @@ export function RecentActivity() {
                 </div>
                 {activity.amount && (
                   <span
-                    className={`text-sm font-medium whitespace-nowrap ${
-                      activity.type === 'payout'
-                        ? 'text-green-500'
-                        : activity.type === 'contribution'
-                        ? 'text-red-500'
-                        : 'text-foreground'
+                    className={`text-sm font-medium shrink-0 ${
+                      activity.type === "payout" ? "text-primary" : "text-foreground"
                     }`}
                   >
+                    {activity.type === "payout" ? "+" : ""}
                     {activity.amount}
                   </span>
                 )}
@@ -104,19 +91,53 @@ export function RecentActivity() {
   )
 }
 
+/**
+ * Renders the activity description, turning the group name into a clickable link.
+ * e.g. "Contributed to Lagos Professionals" → "Contributed to [Lagos Professionals↗]"
+ */
+function renderDescriptionWithLink(activity: Activity) {
+  const { description, groupId, groupName } = activity
+  if (!groupId || !groupName) return <>{description}</>
+
+  // Find where the group name appears in the description and wrap it
+  const idx = description.indexOf(groupName)
+  if (idx === -1) return <>{description}</>
+
+  const before = description.slice(0, idx)
+  const after = description.slice(idx + groupName.length)
+
+  return (
+    <>
+      {before}
+      <Link
+        href={`/groups/${groupId}`}
+        className="text-stellar hover:underline font-medium"
+      >
+        {groupName}
+      </Link>
+      {after}
+    </>
+  )
+}
+
 function ActivityIcon({ type }: { type: string }) {
   const icons = {
     contribution: {
       icon: ArrowUpRight,
-      bg: "bg-red-500/10",
-      color: "text-red-500",
+      bg: "bg-warning/10",
+      color: "text-warning",
     },
     payout: {
       icon: ArrowDownLeft,
-      bg: "bg-green-500/10",
-      color: "text-green-500",
+      bg: "bg-primary/10",
+      color: "text-primary",
     },
     joined: {
+      icon: Users,
+      bg: "bg-stellar/10",
+      color: "text-stellar",
+    },
+    created: {
       icon: Plus,
       bg: "bg-blue-500/10",
       color: "text-blue-500",
@@ -128,7 +149,6 @@ function ActivityIcon({ type }: { type: string }) {
     },
   }
 
-  // Fallback to contribution icon if type is unknown
   const config = icons[type as keyof typeof icons] || icons.contribution
   const Icon = config.icon
 

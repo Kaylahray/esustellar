@@ -1,11 +1,18 @@
-import { Horizon, rpc, xdr, scValToNative } from '@stellar/stellar-sdk';
-import { SOROBAN_RPC_URL } from '@/config/walletConfig';
+import { Horizon, rpc, xdr, scValToNative } from "@stellar/stellar-sdk";
+import { SOROBAN_RPC_URL } from "@/config/walletConfig";
 
-const HORIZON_URL = 'https://horizon-testnet.stellar.org';
+const HORIZON_URL = "https://horizon-testnet.stellar.org";
 const horizonServer = new Horizon.Server(HORIZON_URL);
 const sorobanServer = new rpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
 
-export type ActivityType = 'contribution' | 'payout' | 'joined' | 'created' | 'round_end';
+const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "";
+
+export type ActivityType =
+  | "contribution"
+  | "payout"
+  | "joined"
+  | "created"
+  | "round_end";
 
 export interface Activity {
   type: ActivityType;
@@ -13,40 +20,332 @@ export interface Activity {
   amount: string | null;
   time: string;
   txHash: string | null;
-  groupId: string;
-  groupName: string;
+  groupId?: string;
+  groupName?: string;
   roundNumber?: number;
 }
 
-export async function fetchRecentActivity(userAddress: string, getGroupName?: (groupId: string) => Promise<string>): Promise<Activity[]> {
+// In-memory cache for group names to avoid repeated contract calls
+const groupNameCache = new Map<string, string>();
+
+/**
+ * Fetches the group name from cache or by calling the contract.
+ * Relies on a passed-in getGroupById fn from the SavingsContractContext.
+ */
+async function getGroupName(
+  groupId: string,
+  getGroupById: (id: string) => Promise<{ name: string }>,
+): Promise<string> {
+  if (groupNameCache.has(groupId)) {
+    return groupNameCache.get(groupId)!;
+  }
+  try {
+    const group = await getGroupById(groupId);
+    groupNameCache.set(groupId, group.name);
+    return group.name;
+  } catch {
+    // If we can't get the name, return the truncated groupId
+    const shortId =
+      groupId.length > 12
+        ? `${groupId.slice(0, 6)}...${groupId.slice(-4)}`
+        : groupId;
+    return shortId;
+  }
+}
+
+/**
+ * Parses Soroban contract events from a transaction result.
+ * Returns structured event data for known event topics.
+ */
+function parseContractEvents(
+  txResult: rpc.Api.GetSuccessfulTransactionResponse,
+): ParsedEvent[] {
+  const events: ParsedEvent[] = [];
+
+  if (!txResult.resultMetaXdr) return events;
+
+  console.log("resultMetaXdr type:", typeof txResult.resultMetaXdr);
+  console.log("resultMetaXdr:", txResult.resultMetaXdr);
+
+  try {
+    const meta = txResult.resultMetaXdr as xdr.TransactionMeta;
+
+    if (!meta) return events;
+    const metaV3 = meta.v3();
+    const sorobanMeta = metaV3?.sorobanMeta();
+    if (!sorobanMeta) return events;
+
+    const contractEvents = sorobanMeta.events();
+    for (const contractEvent of contractEvents) {
+      try {
+        const topics = contractEvent.body().v0().topics();
+        const eventData = contractEvent.body().v0().data();
+
+        if (!topics || topics.length === 0) continue;
+
+        // The first topic is the event name (symbol)
+        const eventName = scValToNative(topics[0]) as string;
+        const data = scValToNative(eventData);
+
+        events.push({ name: eventName, data, rawTopics: topics });
+      } catch {
+        // Skip events we can't parse
+      }
+    }
+  } catch {
+    // Ignore parse errors - some transactions may not have soroban events
+  }
+
+  return events;
+}
+
+interface ParsedEvent {
+  name: string;
+  data: unknown;
+  rawTopics: xdr.ScVal[];
+}
+
+/**
+ * Converts stroops (or raw bigint) to a formatted XLM string.
+ * 1 XLM = 10_000_000 stroops
+ */
+function formatXlm(amount: bigint | number | string): string {
+  const raw = BigInt(amount);
+  const xlm = Number(raw) / 10_000_000;
+  return `${xlm.toLocaleString(undefined, { maximumFractionDigits: 2 })} XLM`;
+}
+
+/**
+ * Fetches the full transaction from Soroban RPC and parses its events.
+ */
+async function getTransactionEvents(txHash: string): Promise<ParsedEvent[]> {
+  try {
+    const txResult = await sorobanServer.getTransaction(txHash);
+    if (txResult.status !== rpc.Api.GetTransactionStatus.SUCCESS) return [];
+    return parseContractEvents(
+      txResult as rpc.Api.GetSuccessfulTransactionResponse,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Maps a parsed contract event to an Activity object.
+ */
+async function eventToActivity(
+  event: ParsedEvent,
+  time: string,
+  txHash: string,
+  getGroupById: (id: string) => Promise<{ name: string }>,
+): Promise<Activity | null> {
+  const { name, data } = event;
+
+  switch (name) {
+    case "created": {
+      // Event data: (group_id, contribution_amount, total_members)
+      const [groupId, contributionAmount] = Array.isArray(data)
+        ? data
+        : [null, null];
+      if (!groupId) return null;
+      const groupName = await getGroupName(String(groupId), getGroupById);
+      return {
+        type: "created",
+        description: `Created ${groupName}`,
+        amount: null,
+        time,
+        txHash,
+        groupId: String(groupId),
+        groupName,
+      };
+    }
+
+    case "joined": {
+      // Event data: (member, new_count) — group_id may be in topics[1]
+      const [member] = Array.isArray(data) ? data : [null];
+      // Try to extract group_id from topics index 1 if available
+      const groupId =
+        event.rawTopics.length > 1
+          ? String(scValToNative(event.rawTopics[1]))
+          : null;
+      if (!groupId) {
+        return {
+          type: "joined",
+          description: "Joined a Savings Group",
+          amount: null,
+          time,
+          txHash,
+        };
+      }
+      const groupName = await getGroupName(groupId, getGroupById);
+      return {
+        type: "joined",
+        description: `Joined ${groupName}`,
+        amount: null,
+        time,
+        txHash,
+        groupId,
+        groupName,
+      };
+    }
+
+    case "contrib": {
+      // Event data: (member, contribution_amount, current_round)
+      const [, contributionAmount, currentRound] = Array.isArray(data)
+        ? data
+        : [];
+      const groupId =
+        event.rawTopics.length > 1
+          ? String(scValToNative(event.rawTopics[1]))
+          : null;
+      const formattedAmount =
+        contributionAmount != null ? formatXlm(contributionAmount) : null;
+
+      if (!groupId) {
+        return {
+          type: "contribution",
+          description: "Contributed to Savings Group",
+          amount: formattedAmount,
+          time,
+          txHash,
+        };
+      }
+      const groupName = await getGroupName(groupId, getGroupById);
+      return {
+        type: "contribution",
+        description: `Contributed to ${groupName}`,
+        amount: formattedAmount,
+        time,
+        txHash,
+        groupId,
+        groupName,
+        roundNumber: currentRound != null ? Number(currentRound) : undefined,
+      };
+    }
+
+    case "payout": {
+      // Event data: (recipient, payout_amount, current_round)
+      const [, payoutAmount, currentRound] = Array.isArray(data) ? data : [];
+      const groupId =
+        event.rawTopics.length > 1
+          ? String(scValToNative(event.rawTopics[1]))
+          : null;
+      const formattedAmount =
+        payoutAmount != null ? formatXlm(payoutAmount) : null;
+
+      if (!groupId) {
+        return {
+          type: "payout",
+          description: "Received payout",
+          amount: formattedAmount,
+          time,
+          txHash,
+        };
+      }
+      const groupName = await getGroupName(groupId, getGroupById);
+      return {
+        type: "payout",
+        description: `Received payout from ${groupName}`,
+        amount: formattedAmount,
+        time,
+        txHash,
+        groupId,
+        groupName,
+        roundNumber: currentRound != null ? Number(currentRound) : undefined,
+      };
+    }
+
+    case "round_end": {
+      // Event data: current_round - 1 (the round that just ended)
+      const roundNumber =
+        typeof data === "number" || typeof data === "bigint"
+          ? Number(data)
+          : Array.isArray(data)
+            ? Number(data[0])
+            : null;
+      const groupId =
+        event.rawTopics.length > 1
+          ? String(scValToNative(event.rawTopics[1]))
+          : null;
+
+      if (!groupId) {
+        return {
+          type: "round_end",
+          description:
+            roundNumber != null
+              ? `Round ${roundNumber} completed`
+              : "Round completed",
+          amount: null,
+          time,
+          txHash,
+          roundNumber: roundNumber ?? undefined,
+        };
+      }
+      const groupName = await getGroupName(groupId, getGroupById);
+      return {
+        type: "round_end",
+        description:
+          roundNumber != null
+            ? `Round ${roundNumber} completed in ${groupName}`
+            : `Round completed in ${groupName}`,
+        amount: null,
+        time,
+        txHash,
+        groupId,
+        groupName,
+        roundNumber: roundNumber ?? undefined,
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Main function: fetches recent activity for a user.
+ *
+ * @param userAddress  The user's Stellar address
+ * @param getGroupById A function from SavingsContractContext to look up group names
+ */
+export async function fetchRecentActivity(
+  userAddress: string,
+  getGroupById?: (id: string) => Promise<{ name: string }>,
+): Promise<Activity[]> {
   if (!userAddress) return [];
+
+  // Fallback resolver if no contract context is provided
+  const resolveGroup = getGroupById ?? (async (id: string) => ({ name: id }));
 
   try {
     const response = await horizonServer
       .operations()
       .forAccount(userAddress)
-      .limit(10)
-      .order('desc')
+      .limit(20)
+      .order("desc")
       .call();
 
     const activities: Activity[] = [];
 
-    // Process operations in parallel for better performance
-    const activityPromises = response.records.map(record =>
-      parseOperation(record, userAddress, getGroupName)
-    );
+    // Process operations in parallel for speed, but limit concurrency
+    const CONCURRENCY = 5;
+    const records = response.records;
 
-    const parsedActivities = await Promise.all(activityPromises);
-
-    for (const activity of parsedActivities) {
-      if (activity) {
-        activities.push(activity);
+    for (let i = 0; i < records.length; i += CONCURRENCY) {
+      const batch = records.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map((record) =>
+          parseOperation(record, userAddress, resolveGroup),
+        ),
+      );
+      for (const result of batchResults) {
+        if (result) activities.push(result);
       }
     }
 
     return activities;
   } catch (error) {
-    console.error('Error fetching horizon operations:', error);
+    console.error("Error fetching horizon operations:", error);
     return [];
   }
 }
@@ -54,98 +353,71 @@ export async function fetchRecentActivity(userAddress: string, getGroupName?: (g
 async function parseOperation(
   record: Horizon.ServerApi.OperationRecord,
   userAddress: string,
-  getGroupName?: (groupId: string) => Promise<string>
+  getGroupById: (id: string) => Promise<{ name: string }>,
 ): Promise<Activity | null> {
   const txHash = record.transaction_hash;
-  const createdAt = record.created_at;
-  const time = formatTime(createdAt);
+  const time = formatTime(record.created_at);
 
-  // Only process invoke_host_function operations (Soroban contract calls)
-  if (record.type === 'invoke_host_function') {
-    try {
-      // Fetch the full transaction details including events from Soroban RPC
-      const tx = await sorobanServer.getTransaction(txHash);
+  if (record.type === "invoke_host_function") {
+    // Fetch full transaction from Soroban RPC and parse events
+    if (txHash) {
+      const events = await getTransactionEvents(txHash);
+      console.log("Events for", txHash, events);
 
-      if (tx.status === rpc.Api.GetTransactionStatus.SUCCESS && tx.resultMetaXdr) {
-        // Parse the transaction result and extract contract events
-        // resultMetaXdr is already an XDR object, not a string
-        const resultMeta = typeof tx.resultMetaXdr === 'string' 
-          ? xdr.TransactionMeta.fromXDR(tx.resultMetaXdr, 'base64')
-          : tx.resultMetaXdr;
-
-        // Extract contract events
-        const events = parseContractEvents(resultMeta);
-
-        if (events.length > 0) {
-          // First, try to find group_id from any event or from transaction details
-          let groupId = '';
-          
-          // Try to extract groupId from events
-          for (const event of events) {
-            if (event.topic === 'created' && event.data.length > 0) {
-              groupId = String(scValToNative(event.data[0]));
-              break;
-            }
-          }
-          
-          // If not found in events, try to extract from transaction envelope
-          if (!groupId && tx.envelope) {
-            try {
-              groupId = extractContractIdFromEnvelope(tx.envelope);
-            } catch (e) {
-              // Continue without groupId from envelope
-            }
-          }
-
-          // Map the first relevant event to activity
-          for (const event of events) {
-            const activity = await mapEventToActivity(
-              event,
-              txHash,
-              userAddress,
-              groupId,
-              getGroupName
-            );
-            if (activity) {
-              return activity;
-            }
-          }
+      if (events.length > 0) {
+        // Use the first recognized event from our contract
+        for (const event of events) {
+          const activity = await eventToActivity(
+            event,
+            time,
+            txHash,
+            getGroupById,
+          );
+          if (activity) return activity;
         }
       }
-    } catch (error) {
-      console.error(`Error fetching transaction ${txHash}:`, error);
-      // If we can't fetch or parse the transaction, skip it instead of showing generic message
-      return null;
     }
 
-    // If no events were found but transaction was successful, still skip instead of showing generic message
-    return null;
+    // Fallback: try to infer from legacy Horizon field (rarely populated)
+    const op = record as unknown as { function?: string };
+    if (op.function) {
+      return legacyFunctionToActivity(op.function, time, txHash);
+    }
+
+    // No event data and no function name — skip entirely (don't show "Contract Interaction")
+    // Instead of: return null
+    return {
+      type: "created",
+      description: "Contract Interaction",
+      amount: null,
+      time,
+      txHash,
+    };
   }
 
-  // Handle Payments (Native XLM transfers)
-  if (record.type === 'payment') {
+  // Handle native XLM payment operations
+  if (record.type === "payment") {
     const op = record as Horizon.ServerApi.PaymentOperationRecord;
+    if (op.asset_type !== "native") return null; // Only care about XLM
+
     const isRecipient = op.to === userAddress;
+    const formattedAmount = `${parseFloat(op.amount).toLocaleString()} XLM`;
 
     if (isRecipient) {
       return {
-        type: 'payout',
-        description: `Received payout of ${formatAmount(op.amount)} XLM`,
-        amount: `+${formatAmount(op.amount)} XLM`,
+        type: "payout",
+        description: `Received payment from ${shortenAddress(op.from)}`,
+        amount: formattedAmount,
         time,
         txHash,
-        groupId: op.from,
-        groupName: shortenAddress(op.from),
       };
     } else {
       return {
-        type: 'contribution',
-        description: `Sent payment of ${formatAmount(op.amount)} XLM`,
-        amount: `-${formatAmount(op.amount)} XLM`,
+        type: "contribution",
+        description: `Sent payment to ${shortenAddress(op.to)}`,
+        amount: formattedAmount,
         time,
         txHash,
-        groupId: op.to,
-        groupName: shortenAddress(op.to),
       };
     }
   }
@@ -153,331 +425,49 @@ async function parseOperation(
   return null;
 }
 
-/**
- * Extract contract ID from transaction envelope
- */
-function extractContractIdFromEnvelope(envelope: string | xdr.TransactionEnvelope): string {
-  try {
-    const txEnv = typeof envelope === 'string'
-      ? xdr.TransactionEnvelope.fromXDR(envelope, 'base64')
-      : envelope;
-
-    // Get the transaction
-    const txV1 = txEnv.v1?.();
-    if (!txV1) return '';
-
-    const tx = txV1.tx?.();
-    if (!tx) return '';
-
-    const ops = tx.operations?.();
-    if (!ops || ops.length === 0) return '';
-
-    // Find the invoke_host_function operation
-    for (const op of ops) {
-      const body = op.body?.();
-      if (!body) continue;
-
-      const invokeOp = body.invokeHostFunctionOp?.();
-      if (!invokeOp) continue;
-
-      // Get the host function
-      const hostFunc = invokeOp.hostFunction?.();
-      if (!hostFunc) continue;
-
-      // Extract contract address from the host function arguments
-      const args = hostFunc.args?.();
-      if (!args || args.length === 0) continue;
-
-      // The first arg is usually the contract or contract reference
-      const contractVal = args[0];
-      if (!contractVal) continue;
-
-      try {
-        const contractId = scValToNative(contractVal);
-        return String(contractId);
-      } catch (e) {
-        continue;
-      }
-    }
-
-    return '';
-  } catch (error) {
-    console.error('Error extracting contract ID from envelope:', error);
-    return '';
-  }
-}
-
-/**
- * Parse contract events from transaction metadata
- */
-function parseContractEvents(
-  resultMeta: xdr.TransactionMeta | any
-): Array<{ topic: string; data: xdr.ScVal[] }> {
-  const events: Array<{ topic: string; data: xdr.ScVal[] }> = [];
-
-  try {
-    // Access v3 metadata structure
-    const v3 = (resultMeta as any).v3?.();
-    if (!v3) return events;
-
-    const sorobanMeta = v3.sorobanMeta?.();
-    if (!sorobanMeta) return events;
-
-    const contractEvents = sorobanMeta.events?.();
-    if (!contractEvents || contractEvents.length === 0) return events;
-
-    for (const event of contractEvents) {
-      try {
-        const body = event.body?.();
-        if (!body) continue;
-
-        const contractEvent = body.contractEvent?.();
-        if (!contractEvent) continue;
-
-        const topics = contractEvent.topics?.() || [];
-        const data = contractEvent.data?.() || [];
-
-        // Extract topic name from first topic
-        let topicName = '';
-        if (topics.length > 0 && topics[0].sym) {
-          topicName = topics[0].sym().toString();
-        }
-
-        events.push({
-          topic: topicName,
-          data: data || [],
-        });
-      } catch (e) {
-        console.error('Error parsing individual event:', e);
-        continue;
-      }
-    }
-  } catch (error) {
-    console.error('Error parsing contract events:', error);
-  }
-
-  return events;
-}
-
-/**
- * Map a contract event to an Activity
- */
-async function mapEventToActivity(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
-  userAddress: string,
-  groupId: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  const time = formatTime(new Date().toISOString());
-
-  try {
-    switch (event.topic) {
-      case 'created':
-        return parseCreatedEvent(event, txHash, time, getGroupName);
-
-      case 'joined':
-        return parseJoinedEvent(event, txHash, time, groupId, getGroupName);
-
-      case 'contrib':
-        return parseContribEvent(event, txHash, time, groupId, getGroupName);
-
-      case 'payout':
-        return parsePayoutEvent(event, txHash, time, groupId, getGroupName);
-
-      case 'round_end':
-        return parseRoundEndEvent(event, txHash, time, groupId, getGroupName);
-
-      default:
-        return null;
-    }
-  } catch (error) {
-    console.error(`Error mapping event ${event.topic}:`, error);
-    return null;
-  }
-}
-
-/**
- * Parse 'created' event: (group_id, contribution_amount, total_members)
- */
-async function parseCreatedEvent(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
+/** Legacy fallback for when Horizon exposes the function field (rare). */
+function legacyFunctionToActivity(
+  funcName: string,
   time: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  try {
-    const data = event.data;
-    if (!data || data.length < 3) return null;
-
-    const groupIdVal = scValToNative(data[0]);
-    if (!groupIdVal) return null;
-    const groupId = String(groupIdVal);
-    if (!groupId) return null;
-
-    const groupName = getGroupName ? await getGroupName(groupId) : groupId;
-
+  txHash: string,
+): Activity | null {
+  if (funcName === "create_group") {
     return {
-      type: 'created',
-      description: `Created ${groupName}`,
+      type: "created",
+      description: "Created a new Savings Group",
       amount: null,
       time,
       txHash,
-      groupId,
-      groupName,
     };
-  } catch (error) {
-    console.error('Error parsing created event:', error);
-    return null;
   }
-}
-
-/**
- * Parse 'joined' event: (member, new_count)
- * Note: This event doesn't include group_id directly, so we use member as placeholder
- * In production, you might want to query the contract to find which group this member joined
- */
-async function parseJoinedEvent(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
-  time: string,
-  groupId: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  try {
-    // Use 'Unknown' as fallback if groupId is missing
-    const finalGroupId = groupId || 'unknown';
-    const groupName = getGroupName && groupId ? await getGroupName(groupId) : finalGroupId;
-
+  if (funcName === "join_group") {
     return {
-      type: 'joined',
-      description: `Joined ${groupName}`,
+      type: "joined",
+      description: "Joined a Savings Group",
       amount: null,
       time,
       txHash,
-      groupId: finalGroupId,
-      groupName,
     };
-  } catch (error) {
-    console.error('Error parsing joined event:', error);
-    return null;
   }
-}
-
-/**
- * Parse 'contrib' event: (member, contribution_amount, current_round)
- */
-async function parseContribEvent(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
-  time: string,
-  groupId: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  try {
-    const data = event.data;
-    if (!data || data.length < 2) return null;
-
-    const amountVal = scValToNative(data[1]);
-    if (amountVal === null || amountVal === undefined) return null;
-    const amount = Number(amountVal) / 10_000_000; // Convert stroops to XLM
-    if (isNaN(amount)) return null;
-    const roundNumber = data.length > 2 ? (() => { const val = Number(scValToNative(data[2])); return isNaN(val) ? undefined : val; })() : undefined;
-
-    const finalGroupId = groupId || 'unknown';
-    const groupName = getGroupName && groupId ? await getGroupName(groupId) : finalGroupId;
-
+  if (funcName === "contribute") {
     return {
-      type: 'contribution',
-      description: `Contributed ${amount.toFixed(2)} XLM to ${groupName}`,
-      amount: `-${amount.toFixed(2)} XLM`,
-      time,
-      txHash,
-      groupId: finalGroupId,
-      groupName,
-      roundNumber,
-    };
-  } catch (error) {
-    console.error('Error parsing contrib event:', error);
-    return null;
-  }
-}
-
-/**
- * Parse 'payout' event: (recipient, payout_amount, current_round)
- */
-async function parsePayoutEvent(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
-  time: string,
-  groupId: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  try {
-    const data = event.data;
-    if (!data || data.length < 2) return null;
-
-    const amountVal = scValToNative(data[1]);
-    if (amountVal === null || amountVal === undefined) return null;
-    const amount = Number(amountVal) / 10_000_000; // Convert stroops to XLM
-    if (isNaN(amount)) return null;
-    const roundNumber = data.length > 2 ? (() => { const val = Number(scValToNative(data[2])); return isNaN(val) ? undefined : val; })() : undefined;
-
-    const finalGroupId = groupId || 'unknown';
-    const groupName = getGroupName && groupId ? await getGroupName(groupId) : finalGroupId;
-
-    return {
-      type: 'payout',
-      description: `Received payout of ${amount.toFixed(2)} XLM from ${groupName}`,
-      amount: `+${amount.toFixed(2)} XLM`,
-      time,
-      txHash,
-      groupId: finalGroupId,
-      groupName,
-      roundNumber,
-    };
-  } catch (error) {
-    console.error('Error parsing payout event:', error);
-    return null;
-  }
-}
-
-/**
- * Parse 'round_end' event: (current_round - 1)
- */
-async function parseRoundEndEvent(
-  event: { topic: string; data: xdr.ScVal[] },
-  txHash: string,
-  time: string,
-  groupId: string,
-  getGroupName?: (groupId: string) => Promise<string>
-): Promise<Activity | null> {
-  try {
-    const data = event.data;
-    if (!data || data.length < 1) return null;
-
-    const roundVal = scValToNative(data[0]);
-    if (roundVal === null || roundVal === undefined) return null;
-    const roundNumber = Number(roundVal);
-    if (isNaN(roundNumber)) return null;
-
-    const finalGroupId = groupId || 'unknown';
-    const groupName = getGroupName && groupId ? await getGroupName(groupId) : finalGroupId;
-
-    return {
-      type: 'round_end',
-      description: `Round ${roundNumber} completed in ${groupName}`,
+      type: "contribution",
+      description: "Contributed to Savings Group",
       amount: null,
       time,
       txHash,
-      groupId: finalGroupId,
-      groupName,
-      roundNumber,
     };
-  } catch (error) {
-    console.error('Error parsing round_end event:', error);
-    return null;
   }
+  if (funcName === "payout" || funcName === "distribute") {
+    return {
+      type: "payout",
+      description: "Received payout from Savings Group",
+      amount: null,
+      time,
+      txHash,
+    };
+  }
+  return null;
 }
 
 function formatTime(isoString: string): string {
@@ -485,60 +475,28 @@ function formatTime(isoString: string): string {
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (diffInSeconds < 60) {
-    return 'just now';
-  }
+  if (diffInSeconds < 60) return "just now";
   if (diffInSeconds < 3600) {
     const minutes = Math.floor(diffInSeconds / 60);
-    return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+    return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
   }
   if (diffInSeconds < 86400) {
     const hours = Math.floor(diffInSeconds / 3600);
-    return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+    return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
   }
   if (diffInSeconds < 604800) {
     const days = Math.floor(diffInSeconds / 86400);
-    return `${days} day${days !== 1 ? 's' : ''} ago`;
+    return `${days} day${days !== 1 ? "s" : ""} ago`;
   }
 
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
-function formatAmount(amount: string | number): string {
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 function shortenAddress(address: string): string {
-  if (!address) return '';
+  if (!address) return "";
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
-}
-
-/**
- * Export group name cache accessor for use in components
- * This is meant to be used with a group name cache from the Soroban contract context
- */
-export function createGroupNameFetcher(
-  getGroupNameFromContract: (groupId: string) => Promise<string>
-) {
-  const cache = new Map<string, string>();
-
-  return async (groupId: string): Promise<string> => {
-    if (cache.has(groupId)) {
-      return cache.get(groupId)!;
-    }
-
-    try {
-      const name = await getGroupNameFromContract(groupId);
-      cache.set(groupId, name);
-      return name;
-    } catch (error) {
-      console.error(`Failed to fetch group name for ${groupId}:`, error);
-      return groupId;
-    }
-  };
 }
