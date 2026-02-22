@@ -149,7 +149,7 @@ export function MyGroups() {
               <div className="space-y-1 flex-1">
                 <div className="flex items-center gap-2">
                   <h4 className="font-medium text-foreground">{group.name}</h4>
-                  <StatusBadge status={group.status} />
+                  <StatusBadge status={group.status} label={group.statusLabel} />
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {typeof group.contribution === "number" &&
@@ -168,6 +168,12 @@ export function MyGroups() {
                     : "-"}{" "}
                   • Position #{group.myPosition >= 1 ? group.myPosition : "-"}
                 </p>
+                {typeof group.roundDeadlineTimestamp === "number" &&
+                group.roundDeadlineTimestamp > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Next payment due: {new Date(group.roundDeadlineTimestamp * 1000).toLocaleDateString()}
+                  </p>
+                ) : null}
                 <div className="flex items-center gap-2 pt-1">
                   <Progress value={group.progress} className="h-1.5 flex-1" />
                   <span className="text-xs text-muted-foreground">
@@ -194,22 +200,28 @@ export function MyGroups() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, label }: { status: string; label?: string }) {
   const variants = {
     paid: "bg-primary/10 text-primary border-primary/20",
-    pending: "bg-warning/10 text-warning-dark border-warning/20",
-    received: "bg-stellar/10 text-stellar border-stellar/20",
-    defaulted: "bg-destructive/10 text-destructive border-destructive/20",
+    dueSoon: "bg-warning/10 text-warning-dark border-warning/20",
     overdue: "bg-destructive/10 text-destructive border-destructive/20",
+    defaulted: "bg-destructive/10 text-destructive border-destructive/20",
+    waiting: "bg-muted/10 text-muted-foreground border-muted/20",
+    active: "bg-muted/10 text-muted-foreground border-muted/20",
+    received: "bg-stellar/10 text-stellar border-stellar/20",
+    paused: "bg-muted/10 text-muted-foreground border-muted/20",
     completed: "bg-muted/10 text-muted-foreground border-muted/20",
   };
 
   const labels = {
     paid: "✅ Paid",
-    pending: "⏳ Payment Due",
-    received: "🎉 Received",
-    defaulted: "❌ Defaulted",
+    dueSoon: "⏳ Payment Due Soon",
     overdue: "⚠️ Overdue",
+    defaulted: "❌ Defaulted",
+    waiting: "⏳ Waiting to Start",
+    active: "Active",
+    received: "🎉 Received",
+    paused: "⏸ Paused",
     completed: "✓ Completed",
   };
 
@@ -218,7 +230,7 @@ function StatusBadge({ status }: { status: string }) {
       variant="outline"
       className={variants[status as keyof typeof variants]}
     >
-      {labels[status as keyof typeof labels]}
+      {label || labels[status as keyof typeof labels]}
     </Badge>
   );
 }
