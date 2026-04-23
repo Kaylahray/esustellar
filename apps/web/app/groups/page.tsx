@@ -1,79 +1,65 @@
+'use client'
+
+import { useEffect, useState } from "react"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { GroupsFilter } from "@/components/groups-filter"
 import { GroupCard } from "@/components/group-card"
+import { useRegistryContract, type GroupInfo } from "@/context/registryContract"
 
-// Mock data for groups
-const groups = [
-  {
-    id: "1",
-    name: "Lagos Professionals",
-    contributionAmount: 50,
-    frequency: "Monthly",
-    totalMembers: 10,
-    currentMembers: 8,
-    status: "Open",
-    currentRound: 3,
-    nextPayout: "2026-02-01",
-  },
-  {
-    id: "2",
-    name: "Tech Workers Circle",
-    contributionAmount: 100,
-    frequency: "Monthly",
-    totalMembers: 12,
-    currentMembers: 12,
-    status: "Active",
-    currentRound: 5,
-    nextPayout: "2026-01-15",
-  },
-  {
-    id: "3",
-    name: "Diaspora Savers",
-    contributionAmount: 200,
-    frequency: "Monthly",
-    totalMembers: 8,
-    currentMembers: 6,
-    status: "Open",
-    currentRound: 1,
-    nextPayout: "2026-02-10",
-  },
-  {
-    id: "4",
-    name: "Small Business Fund",
-    contributionAmount: 75,
-    frequency: "Bi-weekly",
-    totalMembers: 15,
-    currentMembers: 15,
-    status: "Active",
-    currentRound: 8,
-    nextPayout: "2026-01-20",
-  },
-  {
-    id: "5",
-    name: "Community Growth",
-    contributionAmount: 25,
-    frequency: "Weekly",
-    totalMembers: 6,
-    currentMembers: 4,
-    status: "Open",
+type DisplayGroup = {
+  id: string
+  name: string
+  contributionAmount: number
+  frequency: string
+  totalMembers: number
+  currentMembers: number
+  status: string
+  currentRound: number
+  nextPayout: string
+}
+
+function toDisplayGroup(info: GroupInfo): DisplayGroup {
+  return {
+    id: info.contract_address,
+    name: info.name,
+    // contributionAmount / frequency / currentRound / nextPayout are not
+    // yet in GroupInfo. Issue #45 explicitly accepts placeholders here;
+    // a follow-up will surface them once the registry exposes them.
+    contributionAmount: 0,
+    frequency: "—",
+    totalMembers: info.total_members,
+    currentMembers: info.total_members,
+    status: info.is_public ? "Open" : "Closed",
     currentRound: 0,
-    nextPayout: "TBD",
-  },
-  {
-    id: "6",
-    name: "Women Entrepreneurs",
-    contributionAmount: 150,
-    frequency: "Monthly",
-    totalMembers: 10,
-    currentMembers: 10,
-    status: "Completed",
-    currentRound: 10,
-    nextPayout: "-",
-  },
-]
+    nextPayout: "—",
+  }
+}
 
 export default function GroupsPage() {
+  const { getAllPublicGroups } = useRegistryContract()
+  const [groups, setGroups] = useState<DisplayGroup[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const infos = await getAllPublicGroups()
+        if (cancelled) return
+        setGroups(infos.map(toDisplayGroup))
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "Failed to load groups.")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [getAllPublicGroups])
+
+  const isLoading = groups === null && error === null
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -88,11 +74,26 @@ export default function GroupsPage() {
 
           <GroupsFilter />
 
-          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {groups.map((group) => (
-              <GroupCard key={group.id} group={group} />
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="mt-8 text-sm text-muted-foreground">Loading groups…</div>
+          ) : error ? (
+            <div
+              className="mt-8 rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+              role="alert"
+            >
+              Could not load groups: {error}
+            </div>
+          ) : groups && groups.length > 0 ? (
+            <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {groups.map((group) => (
+                <GroupCard key={group.id} group={group} />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-8 text-sm text-muted-foreground">
+              No public savings groups yet. Check back soon.
+            </div>
+          )}
         </div>
       </main>
       <Footer />
