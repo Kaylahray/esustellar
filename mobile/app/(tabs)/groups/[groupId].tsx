@@ -29,6 +29,14 @@ const MOCK_GROUPS: Group[] = [
     contribution: '45 XLM',
     frequency: 'Monthly',
     memberCount: 8,
+    members: [
+      { address: 'GABCD1234', name: 'Amina' },
+      { address: 'GXYZ5678', name: 'Noah' },
+      { address: 'GQWER0987', name: 'Sophia' },
+      { address: 'GJKL4321', name: 'Mia' },
+      { address: 'GMNO2890', name: 'Leo' },
+      { address: 'GPDRT1111', name: 'Aria' },
+    ],
   },
   {
     id: '2',
@@ -37,6 +45,10 @@ const MOCK_GROUPS: Group[] = [
     contribution: '90 XLM',
     frequency: 'Biweekly',
     memberCount: 12,
+    members: [
+      { address: 'GHIJK1234', name: 'Noah' },
+      { address: 'GLMNO5678', name: 'Eli' },
+    ],
   },
   {
     id: '3',
@@ -45,6 +57,7 @@ const MOCK_GROUPS: Group[] = [
     contribution: '120 XLM',
     frequency: 'Weekly',
     memberCount: 5,
+    members: [{ address: 'GPQRZ9876', name: 'Zoe' }],
   },
 ];
 
@@ -92,6 +105,11 @@ export default function GroupDetailPage() {
         {group ? (
           <>
             <GroupDetailHeader group={group} />
+
+            <View style={styles.section}>
+              <Text style={styles.sectionHeading}>Members</Text>
+              <MemberAvatarStack members={group.members} onViewAll={() => {}} />
+            </View>
 
             <View style={styles.section}>
               <Text style={styles.sectionHeading}>Overview</Text>
