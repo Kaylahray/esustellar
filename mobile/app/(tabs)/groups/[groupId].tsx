@@ -4,6 +4,12 @@ import React from 'react';
 import { SafeAreaView, ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Badge } from '../../../components/ui/Badge';
+import { MemberAvatarStack } from '../../../components/groups/MemberAvatarStack';
+
+type Member = {
+  address: string;
+  name?: string;
+};
 
 type Group = {
   id: string;
@@ -12,6 +18,7 @@ type Group = {
   contribution: string;
   frequency: string;
   memberCount: number;
+  members: Member[];
 };
 
 const MOCK_GROUPS: Group[] = [
