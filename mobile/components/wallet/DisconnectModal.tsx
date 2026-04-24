@@ -1,12 +1,6 @@
 import React from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Pressable,
-} from 'react-native';
+import { Modal, View, Text, StyleSheet, Pressable } from 'react-native';
+import Button from '../ui/Button';
 
 interface Props {
   visible: boolean;
@@ -29,25 +23,28 @@ export function DisconnectModal({ visible, onConfirm, onCancel }: Props) {
             Disconnect Wallet?
           </Text>
           <Text style={styles.message}>
-            You will be signed out and need to reconnect your wallet to continue.
+            You will be signed out and need to reconnect your wallet to
+            continue.
           </Text>
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.btn, styles.cancelBtn]}
+            <Button
+              variant="outline"
               onPress={onCancel}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
+              style={styles.cancelBtn}
             >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, styles.disconnectBtn]}
-              onPress={() => { onConfirm(); onCancel(); }}
-              accessibilityRole="button"
-              accessibilityLabel="Disconnect"
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onPress={() => {
+                onConfirm();
+                onCancel();
+              }}
+              destructive
+              style={styles.disconnectBtn}
             >
-              <Text style={styles.disconnectText}>Disconnect</Text>
-            </TouchableOpacity>
+              Disconnect
+            </Button>
           </View>
         </Pressable>
       </Pressable>
