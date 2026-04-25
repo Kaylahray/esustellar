@@ -11,6 +11,7 @@ import {
 import { Slot, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { biometricService } from '../services/security';
+import { useAutoLock } from '../hooks/useAutoLock';
 
 const ONBOARDING_KEY = 'onboardingComplete';
 const BIOMETRIC_LOCK_KEY = 'biometricLockEnabled';
@@ -65,6 +66,10 @@ export default function RootLayout() {
   }, []);
 
   // ── Initial routing ─────────────────────────────────────────────────────
+
+  useAutoLock(() => {
+    router.replace('/wallet/connect');
+  });
 
   useEffect(() => {
     AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {

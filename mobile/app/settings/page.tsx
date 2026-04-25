@@ -9,6 +9,13 @@ import {
   SecurityStatus,
   BiometricCapability,
 } from '../../services/security';
+import {
+  AUTO_LOCK_OPTIONS,
+  DEFAULT_TIMEOUT,
+  getAutoLockTimeout,
+  setAutoLockTimeout,
+} from '../../hooks/useAutoLock';
+import { useRouter } from 'expo-router';
 
 // Stub wallet address — replace with real value from wallet context
 const WALLET_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
@@ -16,6 +23,7 @@ const WALLET_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
 // ── Settings Page ────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [biometricCap, setBiometricCap] = useState<BiometricCapability>({
     status: SecurityStatus.UNKNOWN,
     supportedTypes: [],
@@ -23,6 +31,7 @@ export default function SettingsPage() {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pinSet, setPinSet] = useState(false);
+  const [autoLockTimeout, setAutoLockTimeoutState] = useState(DEFAULT_TIMEOUT);
 
   // PIN flow state
   const [showPinSetup, setShowPinSetup] = useState(false);
@@ -57,6 +66,9 @@ export default function SettingsPage() {
 
       const hasPin = pinService.isPinSet();
       setPinSet(hasPin);
+
+      const timeout = await getAutoLockTimeout();
+      setAutoLockTimeoutState(timeout);
 
       // Read persisted preferences
       try {
@@ -213,6 +225,23 @@ export default function SettingsPage() {
             title="Copy wallet address"
           >
             📋
+          </button>
+        </div>
+      </section>
+
+      {/* ── Notifications Section ───────────────────────────────────────────── */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold text-gray-800">Notifications</h2>
+        <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <button
+            onClick={() => router.push('/(tabs)/profile/notifications-settings')}
+            className="w-full flex items-center justify-between p-2 hover:bg-gray-100 rounded transition-colors"
+          >
+            <div className="text-left">
+              <p className="text-sm font-medium text-gray-900">Notification Settings</p>
+              <p className="text-xs text-gray-500">Manage push notification preferences</p>
+            </div>
+            <span className="text-gray-400">→</span>
           </button>
         </div>
       </section>
@@ -407,6 +436,30 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+      {/* ── Auto-lock Section ─────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-800">Auto-lock</h2>
+        <p className="text-sm text-gray-500">Lock the app after this period of inactivity.</p>
+        <div className="flex flex-wrap gap-2">
+          {AUTO_LOCK_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={async () => {
+                setAutoLockTimeoutState(opt.value);
+                await setAutoLockTimeout(opt.value);
+              }}
+              className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                autoLockTimeout === opt.value
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
     </div>
   );
 }
