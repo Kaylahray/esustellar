@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../store/authStore';
 
@@ -14,6 +15,7 @@ function truncateAddress(address: string): string {
 }
 
 const HomeHeader = React.memo(() => {
+  const router = useRouter();
   const { t } = useTranslation();
   const wallet = useAuthStore((s) => s.wallet);
   const displayName = useMemo(() => wallet ? truncateAddress(wallet.publicKey) : t('home.defaultUser'), [wallet, t]);
@@ -28,7 +30,7 @@ const HomeHeader = React.memo(() => {
       <TouchableOpacity
         accessibilityLabel={t('home.notifications')}
         accessibilityRole="button"
-        onPress={() => console.log('notifications')}
+        onPress={() => router.push('/notifications')}
         style={styles.bell}
       >
         <Text style={styles.bellIcon}>🔔</Text>

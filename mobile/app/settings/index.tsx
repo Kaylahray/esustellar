@@ -1,450 +1,285 @@
-'use client';
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  Text,
+  View,
+  Switch,
+} from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { useTranslation } from 'react-i18next';
+
+import Button from '../../components/ui/Button';
+
 import {
   biometricService,
-  pinService,
+  BiometricCapability,
   BiometricType,
   SecurityStatus,
-  BiometricCapability,
 } from '../../services/security';
-import { changeLanguage, getLanguage, languageOptions, loadLanguage } from '../../constants/i18n';
 
-// Stub wallet address — replace with real value from wallet context
+import { pinService } from '../../services/security/pinService';
+
+import {
+  getSecurityPreferences,
+  saveSecurityPreferences,
+  SecurityPreferences,
+} from '../../services/security/securityPreferences';
+
+import {
+  changeLanguage,
+  getLanguage,
+  languageOptions,
+  loadLanguage,
+} from '../../constants/i18n';
+
+const BIOMETRIC_LOCK_KEY = 'biometricLockEnabled';
 const WALLET_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
-// ── Settings Content ────────────────────────────────────────────────────────────
+export default function SettingsScreen() {
+  const router = useRouter();
+  const { t } = useTranslation();
 
-const SettingsContent = React.memo(() => {
   const [biometricCap, setBiometricCap] = useState<BiometricCapability>({
     status: SecurityStatus.UNKNOWN,
     supportedTypes: [],
   });
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [pinEnabled, setPinEnabled] = useState(false);
+
+  const [securityPreferences, setSecurityPreferences] =
+    useState<SecurityPreferences>({
+      biometricEnabled: false,
+      pinEnabled: false,
+    });
+
+  const [biometricEnabledLocal, setBiometricEnabledLocal] = useState(false);
+
   const [pinSet, setPinSet] = useState(false);
+  const [pinLockoutRemainingMs, setPinLockoutRemainingMs] = useState(0);
 
-  // PIN flow state
-  const [showPinSetup, setShowPinSetup] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinConfirm, setPinConfirm] = useState('');
-  const [pinStep, setPinStep] = useState<'enter' | 'confirm'>('enter');
-  const [pinError, setPinError] = useState<string | null>(null);
-
-  // General status
-  const [authenticating, setAuthenticating] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const [copyToast, setCopyToast] = useState<string | null>(null);
   const [language, setLanguage] = useState(getLanguage());
-  const { t } = useTranslation();
+  const [authenticating, setAuthenticating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // ── Copy wallet address ──────────────────────────────────────────────────
+  // ── Load everything ─────────────────────────────────────────
 
-  const handleCopyAddress = useCallback(async () => {
+  const loadSecurityState = useCallback(() => {
+    let active = true;
+
+    void (async () => {
+      const [cap, prefs, pinStatus, storedLang, storedToggle] =
+        await Promise.all([
+          biometricService.getCapability(),
+          getSecurityPreferences(),
+          pinService.getStatus(),
+          loadLanguage(),
+          AsyncStorage.getItem(BIOMETRIC_LOCK_KEY),
+        ]);
+
+      if (!active) return;
+
+      setBiometricCap(cap);
+      setSecurityPreferences(prefs);
+      setPinSet(pinStatus.isPinSet);
+      setPinLockoutRemainingMs(pinStatus.remainingLockoutMs);
+      setLanguage(storedLang);
+      setBiometricEnabledLocal(storedToggle === 'true');
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useFocusEffect(loadSecurityState);
+
+  // ── Labels ─────────────────────────────────────────
+
+  const supportedLabel = useMemo(() => {
+    if (
+      biometricCap.supportedTypes.length === 0 ||
+      biometricCap.supportedTypes.includes(BiometricType.NONE)
+    ) {
+      return 'Unavailable';
+    }
+
+    return biometricCap.supportedTypes
+      .map((type) => {
+        switch (type) {
+          case BiometricType.FINGERPRINT:
+            return 'Fingerprint';
+          case BiometricType.FACIAL_RECOGNITION:
+            return 'Face ID';
+          case BiometricType.IRIS:
+            return 'Iris';
+          default:
+            return 'Biometrics';
+        }
+      })
+      .join(' / ');
+  }, [biometricCap]);
+
+  // ── Biometric (API-based) ─────────────────────────
+
+  const handleBiometricToggle = async () => {
+    if (biometricCap.status !== SecurityStatus.AVAILABLE) {
+      Alert.alert('Unavailable', 'Set up biometrics first.');
+      return;
+    }
+
+    setAuthenticating(true);
+
+    const result = await biometricService.authenticate(
+      securityPreferences.biometricEnabled
+        ? 'Disable biometrics'
+        : 'Enable biometrics'
+    );
+
+    setAuthenticating(false);
+
+    if (!result.success) {
+      setMessage(result.error ?? 'Failed');
+      return;
+    }
+
+    const next = await saveSecurityPreferences({
+      biometricEnabled: !securityPreferences.biometricEnabled,
+    });
+
+    setSecurityPreferences(next);
+  };
+
+  // ── Simple biometric lock (AsyncStorage) ───────────
+
+  const handleLocalToggle = async (value: boolean) => {
+    if (value) {
+      const result = await biometricService.authenticate('Enable lock');
+      if (!result.success) return;
+    }
+
+    setBiometricEnabledLocal(value);
+    await AsyncStorage.setItem(BIOMETRIC_LOCK_KEY, value ? 'true' : 'false');
+  };
+
+  // ── PIN ───────────────────────────────────────────
+
+  const handleRemovePin = () => {
+    Alert.alert('Remove PIN', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await pinService.removePin();
+          const next = await saveSecurityPreferences({ pinEnabled: false });
+
+          setSecurityPreferences(next);
+          setPinSet(false);
+        },
+      },
+    ]);
+  };
+
+  // ── Wallet copy ───────────────────────────────────
+
+  const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(WALLET_ADDRESS);
-      setCopyToast(t('settings.copyToast'));
+      setMessage('Copied');
     } catch {
-      setCopyToast(t('settings.copyFailed'));
+      setMessage('Failed to copy');
     }
-    setTimeout(() => setCopyToast(null), 2500);
-  }, [t]);
+  };
 
-  // ── Initial load ─────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    const load = async () => {
-      const cap = await biometricService.getCapability();
-      setBiometricCap(cap);
-
-      const hasPin = pinService.isPinSet();
-      setPinSet(hasPin);
-
-      // Read persisted preferences
-      try {
-        const prefs = localStorage.getItem('esustellar_security_prefs');
-        if (prefs) {
-          const parsed = JSON.parse(prefs);
-          if (cap.status === SecurityStatus.AVAILABLE) {
-            setBiometricEnabled(parsed.biometricEnabled ?? false);
-          }
-          setPinEnabled(parsed.pinEnabled ?? false);
-        }
-      } catch {
-        // ignore corrupt prefs
-      }
-
-      const savedLanguage = await loadLanguage();
-      setLanguage(savedLanguage);
-    };
-    load();
-  }, []);
-
-  // ── Persist helper ───────────────────────────────────────────────────────
-
-  const savePrefs = useCallback(
-    (updates: { biometricEnabled?: boolean; pinEnabled?: boolean }) => {
-      try {
-        const existing = JSON.parse(localStorage.getItem('esustellar_security_prefs') ?? '{}');
-        const next = { ...existing, ...updates };
-        localStorage.setItem('esustellar_security_prefs', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-    },
-    []
-  );
-
-  // ── Biometric toggle ─────────────────────────────────────────────────────
-
-  const handleBiometricToggle = useCallback(async () => {
-    if (biometricCap.status !== SecurityStatus.AVAILABLE) return;
-
-    if (!biometricEnabled) {
-      // Turning ON — verify user can authenticate first
-      setAuthenticating(true);
-      const result = await biometricService.authenticate(
-        'Enable biometric authentication'
-      );
-      setAuthenticating(false);
-
-      if (result.success) {
-        setBiometricEnabled(true);
-        savePrefs({ biometricEnabled: true });
-        setMessage({ text: t('settings.biometricsEnabled'), type: 'success' });
-      } else {
-        setMessage({ text: result.error ?? t('settings.biometricFailed'), type: 'error' });
-      }
-    } else {
-      // Turning OFF
-      setBiometricEnabled(false);
-      savePrefs({ biometricEnabled: false });
-      setMessage({ text: t('settings.biometricsDisabled'), type: 'info' });
-    }
-  }, [biometricCap.status, biometricEnabled, savePrefs, t]);
-
-  // ── PIN flow ─────────────────────────────────────────────────────────────
-
-  const startPinSetup = useCallback(() => {
-    setPinInput('');
-    setPinConfirm('');
-    setPinStep('enter');
-    setPinError(null);
-    setShowPinSetup(true);
-  }, []);
-
-  const handlePinSubmit = useCallback(async () => {
-    setPinError(null);
-
-    if (pinStep === 'enter') {
-      if (!pinService.isValidPin(pinInput)) {
-        setPinError(t('settings.pinMustDigits'));
-        return;
-      }
-      setPinStep('confirm');
-      setPinConfirm('');
-      return;
-    }
-
-    // Confirm step
-    if (pinInput !== pinConfirm) {
-      setPinError(t('settings.pinsDoNotMatch'));
-      return;
-    }
-
-    try {
-      await pinService.setPin(pinInput);
-      setPinSet(true);
-      setPinEnabled(true);
-      savePrefs({ pinEnabled: true });
-      setShowPinSetup(false);
-      setMessage({ text: t('settings.pinSet'), type: 'success' });
-    } catch {
-      setPinError(t('settings.failedToSavePin'));
-    }
-  }, [pinStep, pinInput, pinConfirm, savePrefs, t]);
-
-  const handleRemovePin = useCallback(() => {
-    pinService.removePin();
-    setPinSet(false);
-    setPinEnabled(false);
-    savePrefs({ pinEnabled: false });
-    setMessage({ text: t('settings.pinRemoved'), type: 'info' });
-  }, [savePrefs, t]);
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
-
-  const biometricLabel = useCallback((type: BiometricType): string => {
-    switch (type) {
-      case BiometricType.FINGERPRINT:
-        return 'Fingerprint';
-      case BiometricType.FACIAL_RECOGNITION:
-        return 'Face ID';
-      case BiometricType.IRIS:
-        return 'Iris';
-      default:
-        return 'Biometrics';
-    }
-  }, []);
-
-  const supportedLabel = useMemo(() =>
-    biometricCap.supportedTypes.length > 0 &&
-    biometricCap.supportedTypes[0] !== BiometricType.NONE
-      ? biometricCap.supportedTypes.map(biometricLabel).join(' / ')
-      : 'None',
-    [biometricCap.supportedTypes, biometricLabel]
-  );
-
-  // ── Render ───────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <SafeAreaView>
+        <Text>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <div className="max-w-md mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">{t('settings.title')}</h1>
+    <SafeAreaView>
+      <ScrollView>
+        <Text>Settings</Text>
 
-      {/* Copy toast */}
-      {copyToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50">
-          {copyToast}
-        </div>
-      )}
+        {/* Wallet */}
+        <View>
+          <Text>{WALLET_ADDRESS}</Text>
+          <Button onPress={handleCopy}>Copy</Button>
+        </View>
 
-      {/* ── Wallet Address Section ─────────────────────────────────────────── */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-800">{t('settings.walletAddress')}</h2>
-        <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-          <p className="flex-1 text-xs text-gray-600 font-mono truncate">{WALLET_ADDRESS}</p>
-          <button
-            onClick={handleCopyAddress}
-            aria-label={t('settings.copyWalletAddress')}
-            className="shrink-0 p-1.5 rounded-md hover:bg-gray-200 transition-colors"
-            title={t('settings.copyWalletAddress')}
-          >
-            📋
-          </button>
-        </div>
-      </section>
-
-      {/* ── Language Section ──────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">{t('settings.language')}</h2>
-        <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-3">
-          <p className="text-sm text-gray-500">{t('settings.languageLabel')}</p>
-          <div className="flex flex-wrap gap-2">
-            {languageOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={async () => {
-                  await changeLanguage(option.value);
-                  setLanguage(option.value);
-                  setMessage({ text: t('settings.languageChangeSuccess'), type: 'success' });
-                }}
-                className={`px-3 py-2 rounded-lg border transition-colors ${
-                  language === option.value
-                    ? 'border-blue-600 bg-blue-50 text-blue-700'
-                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Flash message */}
-      {message && (
-        <div
-          className={`p-3 rounded-lg text-sm ${
-            message.type === 'success'
-              ? 'bg-green-50 text-green-700 border border-green-200'
-              : message.type === 'error'
-                ? 'bg-red-50 text-red-700 border border-red-200'
-                : 'bg-blue-50 text-blue-700 border border-blue-200'
-          }`}
-        >
-          {message.text}
-          <button
-            onClick={() => setMessage(null)}
-            className="float-right font-bold opacity-60 hover:opacity-100"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {/* ── Biometric Section ──────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">{t('settings.biometricAuthentication')}</h2>
-
-        {biometricCap.status === SecurityStatus.UNSUPPORTED && (
-          <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-sm text-yellow-800 font-medium">
-              {t('settings.biometricsNotSupported')}
-            </p>
-            <p className="text-xs text-yellow-600 mt-1">
-              {t('settings.setUpPinFallback')}
-            </p>
-          </div>
-        )}
-
-        {biometricCap.status === SecurityStatus.NOT_ENROLLED && (
-          <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-            <p className="text-sm text-orange-800 font-medium">
-              {t('settings.noBiometricsEnrolled')}
-            </p>
-            <p className="text-xs text-orange-600 mt-1">
-              {t('settings.setupBiometricsHelper')}
-            </p>
-          </div>
-        )}
-
-        {biometricCap.status === SecurityStatus.AVAILABLE && (
-          <>
-            <p className="text-sm text-gray-500">
-              {t('settings.supported')}: <span className="font-medium text-gray-700">{supportedLabel}</span>
-            </p>
-            <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {t('settings.enableBiometrics')}
-                </p>
-                <p className="text-xs text-gray-500">
-                  {t('settings.useToSignIn', { supportedLabel })}
-                </p>
-              </div>
-              <button
-                onClick={handleBiometricToggle}
-                disabled={authenticating}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
-                  biometricEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                } ${authenticating ? 'opacity-50' : ''}`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                    biometricEnabled ? 'translate-x-6' : ''
-                  }`}
-                />
-              </button>
-            </div>
-          </>
-        )}
-
-        {biometricCap.status === SecurityStatus.UNKNOWN && (
-          <div className="flex items-center space-x-2 text-gray-400">
-            <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm">{t('settings.checkingDeviceCapabilities')}</span>
-          </div>
-        )}
-      </section>
-
-      {/* ── About Section ─────────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">{t('settings.about')}</h2>
-        <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-1">
-          <p className="text-sm text-gray-700">
-            {t('settings.version')}{' '}
-            <span className="font-medium">
-              {Constants.expoConfig?.version ?? 'N/A'}
-            </span>
-          </p>
-          {Constants.expoConfig?.extra?.buildNumber != null && (
-            <p className="text-sm text-gray-500">
-              {t('settings.build')}: {Constants.expoConfig.extra.buildNumber}
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* ── PIN Section ────────────────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">{t('settings.pinFallback')}</h2>
-
-        {!pinSet && !showPinSetup && (
-          <>
-            <p className="text-sm text-gray-500">
-              {t('settings.pinDescription')}
-            </p>
-            <button
-              onClick={startPinSetup}
-              className="w-full px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {t('settings.setUpPin')}
-            </button>
-          </>
-        )}
-
-        {showPinSetup && (
-          <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-3">
-            <p className="text-sm font-medium text-gray-700">
-              {pinStep === 'enter' ? t('settings.enterPin') : t('settings.confirmYourPin')}
-            </p>
-
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={pinStep === 'enter' ? pinInput : pinConfirm}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, '');
-                if (pinStep === 'enter') setPinInput(val);
-                else setPinConfirm(val);
+        {/* Language */}
+        <View>
+          <Text>Language</Text>
+          {languageOptions.map((opt) => (
+            <Button
+              key={opt.value}
+              onPress={async () => {
+                await changeLanguage(opt.value);
+                setLanguage(opt.value);
               }}
-              placeholder={pinStep === 'enter' ? t('settings.pinDigits') : t('settings.reenterPin')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
-              autoFocus
-            />
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </View>
 
-            {pinError && (
-              <p className="text-xs text-red-600">{pinError}</p>
-            )}
+        {/* Biometrics */}
+        <View>
+          <Text>Biometric Authentication</Text>
+          <Text>Supported: {supportedLabel}</Text>
 
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setShowPinSetup(false)}
-                className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                {t('settings.cancel')}
-              </button>
-              <button
-                onClick={handlePinSubmit}
-                className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                {pinStep === 'enter' ? t('settings.next') : t('settings.confirm')}
-              </button>
-            </div>
-          </div>
-        )}
+          <Button onPress={handleBiometricToggle} disabled={authenticating}>
+            {securityPreferences.biometricEnabled ? 'Disable' : 'Enable'}
+          </Button>
+        </View>
 
-        {pinSet && !showPinSetup && (
-          <div className="p-4 bg-white border border-gray-200 rounded-lg flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900">{t('settings.pinSet')}</p>
-              <p className="text-xs text-gray-500">
-                {t('settings.pinFallbackInfo')}
-              </p>
-            </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={startPinSetup}
-                className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                {t('settings.change')}
-              </button>
-              <button
-                onClick={handleRemovePin}
-                className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
-              >
-                {t('settings.remove')}
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-    </div>
+        {/* Simple Lock Toggle */}
+        <View>
+          <Text>Biometric Lock</Text>
+          <Switch
+            value={biometricEnabledLocal}
+            onValueChange={handleLocalToggle}
+          />
+        </View>
+
+        {/* PIN */}
+        <View>
+          <Text>PIN</Text>
+
+          {pinSet ? (
+            <>
+              <Button onPress={() => router.push('/security/enter-pin?mode=change')}>
+                Change PIN
+              </Button>
+              <Button onPress={handleRemovePin}>Remove PIN</Button>
+            </>
+          ) : (
+            <Button onPress={() => router.push('/security/setup-pin')}>
+              Set PIN
+            </Button>
+          )}
+
+          {pinLockoutRemainingMs > 0 && (
+            <Text>
+              Locked for {Math.ceil(pinLockoutRemainingMs / 1000)}s
+            </Text>
+          )}
+        </View>
+
+        {/* About */}
+        <View>
+          <Text>Version: {Constants.expoConfig?.version}</Text>
+        </View>
+
+        {message && <Text>{message}</Text>}
+      </ScrollView>
+    </SafeAreaView>
   );
-});
-
-export default SettingsContent;
+}
