@@ -1,7 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity, TextInput as RNTextInput } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  TouchableOpacity,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,6 +16,8 @@ import { TextInput } from '../../components/ui/TextInput';
 import Button from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { groupsApi } from '../../services/api/groupsApi';
+
+const INVITE_CODE_REGEX = /^ESU-[A-Z0-9]{4}-[0-9]{4}$/;
 
 interface GroupInfo {
   groupId: string;
@@ -21,34 +30,33 @@ interface GroupInfo {
   creatorAddress: string;
 }
 
-interface JoinFormData {
-  inviteCode: string;
-  qrCodeData: string;
-}
-
 export default function JoinGroupScreen() {
   const router = useRouter();
   const [joinMethod, setJoinMethod] = useState<'invite' | 'qr'>('invite');
-  const [formData, setFormData] = useState<JoinFormData>({
-    inviteCode: '',
-    qrCodeData: '',
-  });
+  const [inviteCode, setInviteCode] = useState('');
+  const [qrCodeData, setQrCodeData] = useState('');
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState('');
 
   const handleInviteCodeChange = (value: string) => {
-    setFormData(prev => ({ ...prev, inviteCode: value.toUpperCase() }));
+    setInviteCode(value.toUpperCase());
     setError('');
-    if (groupInfo) {
-      setGroupInfo(null);
-    }
+    if (groupInfo) setGroupInfo(null);
   };
 
   const validateInviteCode = async () => {
-    if (!formData.inviteCode.trim()) {
-      setError('Please enter an invite code');
+    const code = inviteCode.trim();
+
+    if (!code) {
+      setError('Invite code is required');
+      return;
+    }
+
+    // ✅ Regex validation from your other branch
+    if (!INVITE_CODE_REGEX.test(code)) {
+      setError('Invalid format. Use ESU-XXXX-0000');
       return;
     }
 
@@ -56,23 +64,23 @@ export default function JoinGroupScreen() {
     setError('');
 
     try {
-      const response = await groupsApi.validateInviteCode(formData.inviteCode);
-      
+      const response = await groupsApi.validateInviteCode(code);
+
       if (response.success && response.data) {
         setGroupInfo({
           groupId: response.data.groupId,
           groupName: response.data.groupName,
           memberCount: response.data.memberCount,
           maxMembers: response.data.maxMembers,
-          contributionAmount: 100, // Mock data
-          payoutFrequency: 'monthly', // Mock data
+          contributionAmount: 100,
+          payoutFrequency: 'monthly',
           description: 'A great savings group',
           creatorAddress: '0x1234...5678',
         });
       } else {
         setError(response.error || 'Invalid invite code');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to validate invite code');
     } finally {
       setValidating(false);
@@ -89,30 +97,23 @@ export default function JoinGroupScreen() {
     setError('');
 
     try {
-      // Mock user address - replace with actual wallet address
       const userAddress = '0xuser...address';
-      
-      const response = await groupsApi.joinGroupWithCode(formData.inviteCode, userAddress);
-      
+
+      const response = await groupsApi.joinGroupWithCode(inviteCode, userAddress);
+
       if (response.success) {
         Alert.alert(
           'Success!',
-          `You have successfully joined "${groupInfo.groupName}"`,
+          `You joined "${groupInfo.groupName}"`,
           [
-            {
-              text: 'View Group',
-              onPress: () => router.push(`/groups/${groupInfo.groupId}`)
-            },
-            {
-              text: 'Go to Groups',
-              onPress: () => router.push('/groups')
-            }
+            { text: 'View Group', onPress: () => router.push(`/groups/${groupInfo.groupId}`) },
+            { text: 'Go to Groups', onPress: () => router.push('/groups') }
           ]
         );
       } else {
         setError(response.error || 'Failed to join group');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to join group');
     } finally {
       setLoading(false);
@@ -120,230 +121,119 @@ export default function JoinGroupScreen() {
   };
 
   const handleQRCodeScan = () => {
-    // Mock QR code scanning - replace with actual QR scanner implementation
     Alert.alert(
       'QR Code Scanner',
-      'QR code scanning would be implemented here using a library like react-native-camera or expo-camera',
+      'Mock scanner for now',
       [
         {
           text: 'Mock Scan',
           onPress: () => {
-            const mockQRData = 'INVITE_ABC12345';
-            setFormData(prev => ({ ...prev, qrCodeData: mockQRData, inviteCode: mockQRData }));
+            const mock = 'ESU-ABCD-1234';
+            setQrCodeData(mock);
+            setInviteCode(mock);
             setJoinMethod('invite');
-            setTimeout(validateInviteCode, 500);
+            setTimeout(validateInviteCode, 300);
           }
         },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
+        { text: 'Cancel', style: 'cancel' }
       ]
-    );
-  };
-
-  const renderJoinMethodSelector = () => (
-    <View style={styles.methodSelector}>
-      <TouchableOpacity
-        style={[
-          styles.methodOption,
-          joinMethod === 'invite' && styles.selectedMethod
-        ]}
-        onPress={() => setJoinMethod('invite')}
-      >
-        <Ionicons 
-          name="key-outline" 
-          size={24} 
-          color={joinMethod === 'invite' ? '#6366F1' : '#64748B'} 
-        />
-        <Text style={[
-          styles.methodText,
-          joinMethod === 'invite' && styles.selectedMethodText
-        ]}>
-          Invite Code
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[
-          styles.methodOption,
-          joinMethod === 'qr' && styles.selectedMethod
-        ]}
-        onPress={() => setJoinMethod('qr')}
-      >
-        <Ionicons 
-          name="qr-code-outline" 
-          size={24} 
-          color={joinMethod === 'qr' ? '#6366F1' : '#64748B'} 
-        />
-        <Text style={[
-          styles.methodText,
-          joinMethod === 'qr' && styles.selectedMethodText
-        ]}>
-          QR Code
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderInviteCodeForm = () => (
-    <View style={styles.formContainer}>
-      <Text style={styles.formTitle}>Enter Invite Code</Text>
-      <Text style={styles.formDescription}>
-        Ask the group creator for the invite code to join their savings group
-      </Text>
-
-      <View style={styles.inputContainer}>
-        <TextInput
-          label="Invite Code"
-          value={formData.inviteCode}
-          onChangeText={handleInviteCodeChange}
-          placeholder="ENTER123"
-          error={error}
-          autoCapitalize="characters"
-          maxLength={12}
-          style={styles.inviteInput}
-        />
-        
-        <TouchableOpacity
-          onPress={validateInviteCode}
-          disabled={!formData.inviteCode.trim() || validating}
-          style={[
-            styles.validateButton,
-            (!formData.inviteCode.trim() || validating) && styles.disabledButton
-          ]}
-        >
-          {validating ? (
-            <Text style={styles.validateButtonText}>Validating...</Text>
-          ) : (
-            <Text style={styles.validateButtonText}>Validate</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {error && (
-        <View style={styles.errorContainer}>
-          <Ionicons name="warning-outline" size={16} color="#EF4444" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-    </View>
-  );
-
-  const renderQRCodeForm = () => (
-    <View style={styles.formContainer}>
-      <Text style={styles.formTitle}>Scan QR Code</Text>
-      <Text style={styles.formDescription}>
-        Point your camera at the QR code to instantly join the group
-      </Text>
-
-      <TouchableOpacity onPress={handleQRCodeScan} style={styles.qrScanner}>
-        <View style={styles.qrPlaceholder}>
-          <Ionicons name="qr-code-outline" size={64} color="#64748B" />
-          <Text style={styles.qrPlaceholderText}>Tap to scan QR code</Text>
-        </View>
-      </TouchableOpacity>
-
-      {formData.qrCodeData && (
-        <View style={styles.qrResult}>
-          <Text style={styles.qrResultLabel}>Scanned Data:</Text>
-          <Text style={styles.qrResultText}>{formData.qrCodeData}</Text>
-        </View>
-      )}
-    </View>
-  );
-
-  const renderGroupPreview = () => {
-    if (!groupInfo) return null;
-
-    return (
-      <Card style={styles.groupPreview}>
-        <Text style={styles.previewTitle}>Group Details</Text>
-        
-        <View style={styles.previewItem}>
-          <Text style={styles.previewLabel}>Group Name</Text>
-          <Text style={styles.previewValue}>{groupInfo.groupName}</Text>
-        </View>
-
-        <View style={styles.previewItem}>
-          <Text style={styles.previewLabel}>Members</Text>
-          <Text style={styles.previewValue}>
-            {groupInfo.memberCount}/{groupInfo.maxMembers}
-          </Text>
-        </View>
-
-        <View style={styles.previewItem}>
-          <Text style={styles.previewLabel}>Contribution</Text>
-          <Text style={styles.previewValue}>${groupInfo.contributionAmount}/month</Text>
-        </View>
-
-        {groupInfo.description && (
-          <View style={styles.previewItem}>
-            <Text style={styles.previewLabel}>Description</Text>
-            <Text style={styles.previewDescription}>{groupInfo.description}</Text>
-          </View>
-        )}
-
-        <View style={styles.spotsAvailable}>
-          <Ionicons name="people-outline" size={16} color="#10B981" />
-          <Text style={styles.spotsText}>
-            {groupInfo.maxMembers - groupInfo.memberCount} spots available
-          </Text>
-        </View>
-      </Card>
     );
   };
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Join Group</Text>
-        <View style={styles.placeholder} />
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {renderJoinMethodSelector()}
+      <ScrollView>
+        {/* Method Selector */}
+        <View style={styles.methodSelector}>
+          <TouchableOpacity onPress={() => setJoinMethod('invite')}>
+            <Text>Invite Code</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setJoinMethod('qr')}>
+            <Text>QR Code</Text>
+          </TouchableOpacity>
+        </View>
 
-        {joinMethod === 'invite' ? renderInviteCodeForm() : renderQRCodeForm()}
+        {/* Invite Form */}
+        {joinMethod === 'invite' && (
+          <View style={styles.form}>
+            <TextInput
+              label="Invite Code"
+              value={inviteCode}
+              onChangeText={handleInviteCodeChange}
+              placeholder="ESU-XXXX-0000"
+              autoCapitalize="characters"
+              error={error}
+            />
 
-        {renderGroupPreview()}
-
-        {groupInfo && (
-          <View style={styles.actionContainer}>
-            <Button
-              onPress={handleJoinGroup}
-              loading={loading}
-              style={styles.joinButton}
-            >
-              Join Group
+            <Button onPress={validateInviteCode} loading={validating}>
+              Validate
             </Button>
           </View>
         )}
 
-        <View style={styles.helpSection}>
-          <Text style={styles.helpTitle}>Need Help?</Text>
-          <TouchableOpacity style={styles.helpItem}>
-            <Ionicons name="help-circle-outline" size={16} color="#6366F1" />
-            <Text style={styles.helpText}>How to get an invite code</Text>
+        {/* QR */}
+        {joinMethod === 'qr' && (
+          <TouchableOpacity onPress={handleQRCodeScan}>
+            <Text>Tap to Scan QR</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.helpItem}>
-            <Ionicons name="shield-checkmark-outline" size={16} color="#6366F1" />
-            <Text style={styles.helpText}>Is this group safe?</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.helpItem}>
-            <Ionicons name="mail-outline" size={16} color="#6366F1" />
-            <Text style={styles.helpText}>Contact support</Text>
-          </TouchableOpacity>
-        </View>
+        )}
+
+        {/* Preview */}
+        {groupInfo && (
+          <Card>
+            <Text>{groupInfo.groupName}</Text>
+            <Text>{groupInfo.memberCount}/{groupInfo.maxMembers}</Text>
+
+            <Button onPress={handleJoinGroup} loading={loading}>
+              Join Group
+            </Button>
+          </Card>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  navHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  backButtonText: { color: '#0F172A', fontWeight: '600' },
+  screenTitle: { marginLeft: 16, fontSize: 18, fontWeight: '700', color: '#0F172A' },
+  content: { padding: 24 },
+  description: { fontSize: 14, color: '#475569', marginBottom: 24, lineHeight: 20 },
+  joinButton: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+  },
+  joinButtonDisabled: { opacity: 0.4 },
+  joinButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   container: {
     flex: 1,
     backgroundColor: '#0F172A',

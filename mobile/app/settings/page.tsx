@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Constants from 'expo-constants';
 import {
   biometricService,
   pinService,
@@ -301,6 +302,24 @@ export default function SettingsPage() {
             <span className="text-sm">Checking device capabilities…</span>
           </div>
         )}
+      </section>
+
+      {/* ── About Section ─────────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-800">About</h2>
+        <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-1">
+          <p className="text-sm text-gray-700">
+            Version{' '}
+            <span className="font-medium">
+              {Constants.expoConfig?.version ?? 'N/A'}
+            </span>
+          </p>
+          {Constants.expoConfig?.extra?.buildNumber != null && (
+            <p className="text-sm text-gray-500">
+              Build: {Constants.expoConfig.extra.buildNumber}
+            </p>
+          )}
+        </div>
       </section>
 
       {/* ── PIN Section ────────────────────────────────────────────────────── */}
