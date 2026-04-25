@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Slot, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { loadLanguage } from '../constants/i18n';
 import { biometricService } from '../services/security';
 import { useAutoLock } from '../hooks/useAutoLock';
 
@@ -72,14 +73,19 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
+    async function initialize() {
+      await loadLanguage();
+
+      const value = await AsyncStorage.getItem(ONBOARDING_KEY);
       if (value === 'true') {
         router.replace('/wallet/connect');
       } else {
         router.replace('/onboarding');
       }
       setChecking(false);
-    });
+    }
+
+    initialize();
   }, []);
 
   if (checking) {

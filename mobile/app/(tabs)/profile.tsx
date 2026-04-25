@@ -7,6 +7,7 @@ import {
   Pressable,
   StyleSheet,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useRouter } from 'expo-router';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
@@ -19,12 +20,13 @@ function truncateAddress(address: string): string {
 }
 
 export default function ProfileScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const wallet = useAuthStore((s) => s.wallet);
   const logout = useAuthStore((s) => s.logout);
   const [disconnectModalVisible, setDisconnectModalVisible] = useState(false);
 
-  const displayName = 'EsuStellar User';
+  const displayName = wallet ? truncateAddress(wallet.publicKey) : t('home.defaultUser');
   const walletAddress = wallet?.publicKey || 'GABCD1234EFGH5678IJKL9012MNOP';
 
   const handleDisconnect = () => {
@@ -45,7 +47,7 @@ export default function ProfileScreen() {
         {/* Action Button */}
         <View style={styles.section}>
           <Button variant="outline" size="lg" onPress={() => router.push('/profile/edit')}>
-            Edit Profile
+            {t('profile.editProfile')}
           </Button>
         </View>
 
@@ -56,7 +58,7 @@ export default function ProfileScreen() {
             onPress={() => router.push('/settings')}
             accessibilityRole="button"
           >
-            <Text style={styles.settingsLabel}>Settings</Text>
+            <Text style={styles.settingsLabel}>{t('profile.settings')}</Text>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
 
@@ -67,8 +69,8 @@ export default function ProfileScreen() {
             onPress={() => setDisconnectModalVisible(true)}
             accessibilityRole="button"
           >
-            <Text style={[styles.settingsLabel, { color: '#EF4444' }]}>
-              Disconnect Wallet
+            <Text style={[styles.settingsLabel, { color: '#EF4444' }]}> 
+              {t('profile.disconnectWallet')}
             </Text>
             <Text style={[styles.chevron, { color: '#EF4444' }]}>›</Text>
           </Pressable>

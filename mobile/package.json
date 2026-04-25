@@ -12,12 +12,16 @@
     "e2e": "detox test --configuration ios.sim.debug"
   },
   "dependencies": {
+    "@expo/vector-icons": "^14.0.0",
+    "@react-native-async-storage/async-storage": "^1.20.0",
     "expo": "~51.0.0",
     "expo-haptics": "~12.8.1",
+    "expo-localization": "~15.0.0",
     "expo-router": "~3.5.0",
     "expo-status-bar": "~1.12.1",
-    "@expo/vector-icons": "^14.0.0",
+    "i18next": "^24.0.0",
     "react": "18.2.0",
+    "react-i18next": "^14.0.0",
     "react-native": "0.74.0",
     "@react-native-async-storage/async-storage": "^1.21.0"
     "zustand": "^4.5.2"
