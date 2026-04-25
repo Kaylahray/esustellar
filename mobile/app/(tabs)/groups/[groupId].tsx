@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { SafeAreaView, ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
+import { SafeAreaView, FlatList, View, Text, Pressable, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Badge } from '../../../components/ui/Badge';
 import { MemberAvatarStack } from '../../../components/groups/MemberAvatarStack';
@@ -86,11 +86,59 @@ function GroupDetailHeader({ group }: { group: Group }) {
   );
 }
 
+type Section = { key: string };
+
 export default function GroupDetailPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ groupId?: string }>();
   const groupId = params.groupId ?? '';
   const group = MOCK_GROUPS.find((item) => item.id === groupId) || null;
+
+  const sections: Section[] = group
+    ? [{ key: 'header' }, { key: 'members' }, { key: 'overview' }, { key: 'groupId' }]
+    : [{ key: 'notFound' }];
+
+  const renderItem = ({ item }: { item: Section }) => {
+    if (!group) {
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Group not found</Text>
+          <Text style={styles.sectionText}>
+            No mock group was found for the requested ID. Use a valid group link to see details.
+          </Text>
+        </View>
+      );
+    }
+    switch (item.key) {
+      case 'header':
+        return <GroupDetailHeader group={group} />;
+      case 'members':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Members</Text>
+            <MemberAvatarStack members={group.members} onViewAll={() => {}} />
+          </View>
+        );
+      case 'overview':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Overview</Text>
+            <Text style={styles.sectionText}>
+              This is the group detail screen for &quot;{group.name}&quot;. The group has a contribution amount of {group.contribution} paid {group.frequency.toLowerCase()}, and currently includes {group.memberCount} members.
+            </Text>
+          </View>
+        );
+      case 'groupId':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Group ID</Text>
+            <Text style={styles.sectionText}>{groupId}</Text>
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -101,37 +149,12 @@ export default function GroupDetailPage() {
         <Text style={styles.screenTitle}>Group Details</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {group ? (
-          <>
-            <GroupDetailHeader group={group} />
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Members</Text>
-              <MemberAvatarStack members={group.members} onViewAll={() => {}} />
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Overview</Text>
-              <Text style={styles.sectionText}>
-                This is the group detail screen for “{group.name}”. The group has a contribution amount of {group.contribution} paid {group.frequency.toLowerCase()}, and currently includes {group.memberCount} members.
-              </Text>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Group ID</Text>
-              <Text style={styles.sectionText}>{groupId}</Text>
-            </View>
-          </>
-        ) : (
-          <View style={styles.section}>
-            <Text style={styles.sectionHeading}>Group not found</Text>
-            <Text style={styles.sectionText}>
-              No mock group was found for the requested ID. Use a valid group link to see details.
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+      <FlatList
+        data={sections}
+        keyExtractor={(item) => item.key}
+        renderItem={renderItem}
+        contentContainerStyle={styles.content}
+      />
     </SafeAreaView>
   );
 }
