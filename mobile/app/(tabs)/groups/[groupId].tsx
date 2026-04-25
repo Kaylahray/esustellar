@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
-import { SafeAreaView, ScrollView, View, Text, Pressable, StyleSheet } from 'react-native';
+import { SafeAreaView, ScrollView, View, Text, Pressable, StyleSheet, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { Badge } from '../../../components/ui/Badge';
 import { MemberAvatarStack } from '../../../components/groups/MemberAvatarStack';
 
@@ -19,6 +21,8 @@ type Group = {
   frequency: string;
   memberCount: number;
   members: Member[];
+  inviteCode?: string;
+  isOwner?: boolean;
 };
 
 const MOCK_GROUPS: Group[] = [
@@ -37,6 +41,8 @@ const MOCK_GROUPS: Group[] = [
       { address: 'GMNO2890', name: 'Leo' },
       { address: 'GPDRT1111', name: 'Aria' },
     ],
+    inviteCode: 'ESU-ABCD-1234',
+    isOwner: true,
   },
   {
     id: '2',
@@ -49,6 +55,8 @@ const MOCK_GROUPS: Group[] = [
       { address: 'GHIJK1234', name: 'Noah' },
       { address: 'GLMNO5678', name: 'Eli' },
     ],
+    inviteCode: 'ESU-EFGH-5678',
+    isOwner: false,
   },
   {
     id: '3',
@@ -58,6 +66,8 @@ const MOCK_GROUPS: Group[] = [
     frequency: 'Weekly',
     memberCount: 5,
     members: [{ address: 'GPQRZ9876', name: 'Zoe' }],
+    inviteCode: 'ESU-IJKL-9012',
+    isOwner: false,
   },
 ];
 
@@ -67,6 +77,27 @@ const STATUS_VARIANT_MAP: Record<Group['status'], 'success' | 'warning' | 'error
   Closed: 'error',
   Pending: 'info',
 };
+
+function InviteCodeRow({ inviteCode }: { inviteCode: string }) {
+  const handleCopyInviteCode = async () => {
+    try {
+      await Clipboard.setStringAsync(inviteCode);
+      Alert.alert('Success', 'Invite code copied!');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to copy invite code');
+    }
+  };
+
+  return (
+    <View style={styles.inviteCodeRow}>
+      <Text style={styles.inviteCodeLabel}>Invite Code:</Text>
+      <Text style={styles.inviteCodeValue}>{inviteCode}</Text>
+      <Pressable onPress={handleCopyInviteCode} style={styles.copyButton}>
+        <Ionicons name="copy-outline" size={20} color="#6B7280" />
+      </Pressable>
+    </View>
+  );
+}
 
 function GroupDetailHeader({ group }: { group: Group }) {
   return (
@@ -82,15 +113,67 @@ function GroupDetailHeader({ group }: { group: Group }) {
       </View>
 
       <Text style={styles.memberText}>{group.memberCount} members</Text>
+      
+      {group.isOwner && group.inviteCode && (
+        <InviteCodeRow inviteCode={group.inviteCode} />
+      )}
     </View>
   );
 }
+
+type Section = { key: string };
 
 export default function GroupDetailPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ groupId?: string }>();
   const groupId = params.groupId ?? '';
   const group = MOCK_GROUPS.find((item) => item.id === groupId) || null;
+
+  const sections: Section[] = group
+    ? [{ key: 'header' }, { key: 'members' }, { key: 'overview' }, { key: 'groupId' }]
+    : [{ key: 'notFound' }];
+
+  const renderItem = ({ item }: { item: Section }) => {
+    if (!group) {
+      return (
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Group not found</Text>
+          <Text style={styles.sectionText}>
+            No mock group was found for the requested ID. Use a valid group link to see details.
+          </Text>
+        </View>
+      );
+    }
+    switch (item.key) {
+      case 'header':
+        return <GroupDetailHeader group={group} />;
+      case 'members':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Members</Text>
+            <MemberAvatarStack members={group.members} onViewAll={() => {}} />
+          </View>
+        );
+      case 'overview':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Overview</Text>
+            <Text style={styles.sectionText}>
+              This is the group detail screen for &quot;{group.name}&quot;. The group has a contribution amount of {group.contribution} paid {group.frequency.toLowerCase()}, and currently includes {group.memberCount} members.
+            </Text>
+          </View>
+        );
+      case 'groupId':
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Group ID</Text>
+            <Text style={styles.sectionText}>{groupId}</Text>
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -101,37 +184,12 @@ export default function GroupDetailPage() {
         <Text style={styles.screenTitle}>Group Details</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {group ? (
-          <>
-            <GroupDetailHeader group={group} />
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Members</Text>
-              <MemberAvatarStack members={group.members} onViewAll={() => {}} />
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Overview</Text>
-              <Text style={styles.sectionText}>
-                This is the group detail screen for “{group.name}”. The group has a contribution amount of {group.contribution} paid {group.frequency.toLowerCase()}, and currently includes {group.memberCount} members.
-              </Text>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionHeading}>Group ID</Text>
-              <Text style={styles.sectionText}>{groupId}</Text>
-            </View>
-          </>
-        ) : (
-          <View style={styles.section}>
-            <Text style={styles.sectionHeading}>Group not found</Text>
-            <Text style={styles.sectionText}>
-              No mock group was found for the requested ID. Use a valid group link to see details.
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+      <FlatList
+        data={sections}
+        keyExtractor={(item) => item.key}
+        renderItem={renderItem}
+        contentContainerStyle={styles.content}
+      />
     </SafeAreaView>
   );
 }
@@ -228,5 +286,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: '#334155',
+  },
+  inviteCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  inviteCodeLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748B',
+    marginRight: 8,
+  },
+  inviteCodeValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0F172A',
+    flex: 1,
+  },
+  copyButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
   },
 });
