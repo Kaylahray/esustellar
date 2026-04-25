@@ -3,6 +3,7 @@ export { default } from './index';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Constants from 'expo-constants';
+import { useTranslation } from 'react-i18next';
 import {
   biometricService,
   pinService,
@@ -10,6 +11,7 @@ import {
   SecurityStatus,
   BiometricCapability,
 } from '../../services/security';
+import { changeLanguage, getLanguage, languageOptions, loadLanguage } from '../../constants/i18n';
 import {
   AUTO_LOCK_OPTIONS,
   DEFAULT_TIMEOUT,
@@ -45,15 +47,17 @@ export default function SettingsPage() {
   const [authenticating, setAuthenticating] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [copyToast, setCopyToast] = useState<string | null>(null);
+  const [language, setLanguage] = useState(getLanguage());
+  const { t } = useTranslation();
 
   // ── Copy wallet address ──────────────────────────────────────────────────
 
   const handleCopyAddress = async () => {
     try {
       await navigator.clipboard.writeText(WALLET_ADDRESS);
-      setCopyToast('Wallet address copied to clipboard');
+      setCopyToast(t('settings.copyToast'));
     } catch {
-      setCopyToast('Failed to copy wallet address');
+      setCopyToast(t('settings.copyFailed'));
     }
     setTimeout(() => setCopyToast(null), 2500);
   };
@@ -84,6 +88,9 @@ export default function SettingsPage() {
       } catch {
         // ignore corrupt prefs
       }
+
+      const savedLanguage = await loadLanguage();
+      setLanguage(savedLanguage);
     };
     load();
   }, []);
@@ -119,15 +126,15 @@ export default function SettingsPage() {
       if (result.success) {
         setBiometricEnabled(true);
         savePrefs({ biometricEnabled: true });
-        setMessage({ text: 'Biometric authentication enabled', type: 'success' });
+        setMessage({ text: t('settings.biometricsEnabled'), type: 'success' });
       } else {
-        setMessage({ text: result.error ?? 'Biometric verification failed', type: 'error' });
+        setMessage({ text: result.error ?? t('settings.biometricFailed'), type: 'error' });
       }
     } else {
       // Turning OFF
       setBiometricEnabled(false);
       savePrefs({ biometricEnabled: false });
-      setMessage({ text: 'Biometric authentication disabled', type: 'info' });
+      setMessage({ text: t('settings.biometricsDisabled'), type: 'info' });
     }
   };
 
@@ -146,7 +153,7 @@ export default function SettingsPage() {
 
     if (pinStep === 'enter') {
       if (!pinService.isValidPin(pinInput)) {
-        setPinError('PIN must be 4-6 digits');
+        setPinError(t('settings.pinMustDigits'));
         return;
       }
       setPinStep('confirm');
@@ -156,7 +163,7 @@ export default function SettingsPage() {
 
     // Confirm step
     if (pinInput !== pinConfirm) {
-      setPinError('PINs do not match');
+      setPinError(t('settings.pinsDoNotMatch'));
       return;
     }
 
@@ -166,9 +173,9 @@ export default function SettingsPage() {
       setPinEnabled(true);
       savePrefs({ pinEnabled: true });
       setShowPinSetup(false);
-      setMessage({ text: 'PIN set successfully', type: 'success' });
+      setMessage({ text: t('settings.pinSet'), type: 'success' });
     } catch {
-      setPinError('Failed to save PIN');
+      setPinError(t('settings.failedToSavePin'));
     }
   };
 
@@ -177,7 +184,7 @@ export default function SettingsPage() {
     setPinSet(false);
     setPinEnabled(false);
     savePrefs({ pinEnabled: false });
-    setMessage({ text: 'PIN removed', type: 'info' });
+    setMessage({ text: t('settings.pinRemoved'), type: 'info' });
   };
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -205,7 +212,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-md mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Security Settings</h1>
+      <h1 className="text-2xl font-bold text-gray-900">{t('settings.title')}</h1>
 
       {/* Copy toast */}
       {copyToast && (
@@ -216,20 +223,45 @@ export default function SettingsPage() {
 
       {/* ── Wallet Address Section ─────────────────────────────────────────── */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-gray-800">Wallet Address</h2>
+        <h2 className="text-lg font-semibold text-gray-800">{t('settings.walletAddress')}</h2>
         <div className="flex items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
           <p className="flex-1 text-xs text-gray-600 font-mono truncate">{WALLET_ADDRESS}</p>
           <button
             onClick={handleCopyAddress}
-            aria-label="Copy wallet address"
+            aria-label={t('settings.copyWalletAddress')}
             className="shrink-0 p-1.5 rounded-md hover:bg-gray-200 transition-colors"
-            title="Copy wallet address"
+            title={t('settings.copyWalletAddress')}
           >
             📋
           </button>
         </div>
       </section>
 
+      {/* ── Language Section ──────────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-gray-800">{t('settings.language')}</h2>
+        <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-3">
+          <p className="text-sm text-gray-500">{t('settings.languageLabel')}</p>
+          <div className="flex flex-wrap gap-2">
+            {languageOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={async () => {
+                  await changeLanguage(option.value);
+                  setLanguage(option.value);
+                  setMessage({ text: t('settings.languageChangeSuccess'), type: 'success' });
+                }}
+                className={`px-3 py-2 rounded-lg border transition-colors ${
+                  language === option.value
+                    ? 'border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
       {/* ── Notifications Section ───────────────────────────────────────────── */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold text-gray-800">Notifications</h2>
@@ -270,15 +302,15 @@ export default function SettingsPage() {
 
       {/* ── Biometric Section ──────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">Biometric Authentication</h2>
+        <h2 className="text-lg font-semibold text-gray-800">{t('settings.biometricAuthentication')}</h2>
 
         {biometricCap.status === SecurityStatus.UNSUPPORTED && (
           <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800 font-medium">
-              Biometrics not supported on this device
+              {t('settings.biometricsNotSupported')}
             </p>
             <p className="text-xs text-yellow-600 mt-1">
-              Set up a PIN below as a fallback authentication method.
+              {t('settings.setUpPinFallback')}
             </p>
           </div>
         )}
@@ -286,11 +318,10 @@ export default function SettingsPage() {
         {biometricCap.status === SecurityStatus.NOT_ENROLLED && (
           <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
             <p className="text-sm text-orange-800 font-medium">
-              No biometrics enrolled
+              {t('settings.noBiometricsEnrolled')}
             </p>
             <p className="text-xs text-orange-600 mt-1">
-              Please set up fingerprint or face recognition in your device
-              settings, then return here to enable it.
+              {t('settings.setupBiometricsHelper')}
             </p>
           </div>
         )}
@@ -298,15 +329,15 @@ export default function SettingsPage() {
         {biometricCap.status === SecurityStatus.AVAILABLE && (
           <>
             <p className="text-sm text-gray-500">
-              Supported: <span className="font-medium text-gray-700">{supportedLabel}</span>
+              {t('settings.supported')}: <span className="font-medium text-gray-700">{supportedLabel}</span>
             </p>
             <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg">
               <div>
                 <p className="text-sm font-medium text-gray-900">
-                  Enable biometrics
+                  {t('settings.enableBiometrics')}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Use {supportedLabel} to sign in
+                  {t('settings.useToSignIn', { supportedLabel })}
                 </p>
               </div>
               <button
@@ -329,24 +360,24 @@ export default function SettingsPage() {
         {biometricCap.status === SecurityStatus.UNKNOWN && (
           <div className="flex items-center space-x-2 text-gray-400">
             <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm">Checking device capabilities…</span>
+            <span className="text-sm">{t('settings.checkingDeviceCapabilities')}</span>
           </div>
         )}
       </section>
 
       {/* ── About Section ─────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">About</h2>
+        <h2 className="text-lg font-semibold text-gray-800">{t('settings.about')}</h2>
         <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-1">
           <p className="text-sm text-gray-700">
-            Version{' '}
+            {t('settings.version')}{' '}
             <span className="font-medium">
               {Constants.expoConfig?.version ?? 'N/A'}
             </span>
           </p>
           {Constants.expoConfig?.extra?.buildNumber != null && (
             <p className="text-sm text-gray-500">
-              Build: {Constants.expoConfig.extra.buildNumber}
+              {t('settings.build')}: {Constants.expoConfig.extra.buildNumber}
             </p>
           )}
         </div>
@@ -354,18 +385,18 @@ export default function SettingsPage() {
 
       {/* ── PIN Section ────────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-gray-800">PIN Fallback</h2>
+        <h2 className="text-lg font-semibold text-gray-800">{t('settings.pinFallback')}</h2>
 
         {!pinSet && !showPinSetup && (
           <>
             <p className="text-sm text-gray-500">
-              Set a 4-6 digit PIN as a fallback when biometrics are unavailable.
+              {t('settings.pinDescription')}
             </p>
             <button
               onClick={startPinSetup}
               className="w-full px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Set up PIN
+              {t('settings.setUpPin')}
             </button>
           </>
         )}
@@ -373,7 +404,7 @@ export default function SettingsPage() {
         {showPinSetup && (
           <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-3">
             <p className="text-sm font-medium text-gray-700">
-              {pinStep === 'enter' ? 'Enter your PIN' : 'Confirm your PIN'}
+              {pinStep === 'enter' ? t('settings.enterPin') : t('settings.confirmYourPin')}
             </p>
 
             <input
@@ -386,7 +417,7 @@ export default function SettingsPage() {
                 if (pinStep === 'enter') setPinInput(val);
                 else setPinConfirm(val);
               }}
-              placeholder={pinStep === 'enter' ? '4-6 digits' : 'Re-enter PIN'}
+              placeholder={pinStep === 'enter' ? t('settings.pinDigits') : t('settings.reenterPin')}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
               autoFocus
             />
@@ -406,7 +437,7 @@ export default function SettingsPage() {
                 onClick={handlePinSubmit}
                 className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                {pinStep === 'enter' ? 'Next' : 'Confirm'}
+                {pinStep === 'enter' ? t('settings.next') : t('settings.confirm')}
               </button>
             </div>
           </div>
@@ -415,9 +446,9 @@ export default function SettingsPage() {
         {pinSet && !showPinSetup && (
           <div className="p-4 bg-white border border-gray-200 rounded-lg flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-900">PIN is set</p>
+              <p className="text-sm font-medium text-gray-900">{t('settings.pinSet')}</p>
               <p className="text-xs text-gray-500">
-                Used as fallback when biometrics fail
+                {t('settings.pinFallbackInfo')}
               </p>
             </div>
             <div className="flex space-x-2">
@@ -425,13 +456,13 @@ export default function SettingsPage() {
                 onClick={startPinSetup}
                 className="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                Change
+                {t('settings.change')}
               </button>
               <button
                 onClick={handleRemovePin}
                 className="px-3 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
               >
-                Remove
+                {t('settings.remove')}
               </button>
             </div>
           </div>

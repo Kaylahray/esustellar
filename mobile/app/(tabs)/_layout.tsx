@@ -1,11 +1,14 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 const TAB_BAR_BG = '#0F172A';
 const ACTIVE = '#6366F1';
 const INACTIVE = '#64748B';
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
+
   return (
     <Tabs
       screenOptions={{
@@ -17,19 +20,19 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Home', tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
+        options={{ title: t('tabs.home'), tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={22} color={color} /> }}
       />
       <Tabs.Screen
         name="groups"
-        options={{ title: 'Groups', tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={22} color={color} /> }}
+        options={{ title: t('tabs.groups'), tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={22} color={color} /> }}
       />
       <Tabs.Screen
         name="notifications"
-        options={{ title: 'Notifications', tabBarIcon: ({ color }) => <Ionicons name="notifications-outline" size={22} color={color} /> }}
+        options={{ title: t('tabs.notifications'), tabBarIcon: ({ color }) => <Ionicons name="notifications-outline" size={22} color={color} /> }}
       />
       <Tabs.Screen
         name="profile"
-        options={{ title: 'Profile', tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
+        options={{ title: t('tabs.profile'), tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={22} color={color} /> }}
       />
     </Tabs>
   );

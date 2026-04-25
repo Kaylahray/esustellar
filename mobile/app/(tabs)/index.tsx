@@ -1,13 +1,13 @@
 import React from 'react';
 import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../../store/authStore';
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+function getGreeting(hour: number, t: any): string {
+  if (hour < 12) return t('home.goodMorning');
+  if (hour < 18) return t('home.goodAfternoon');
+  return t('home.goodEvening');
 }
 
 function truncateAddress(address: string): string {
@@ -16,17 +16,18 @@ function truncateAddress(address: string): string {
 
 function HomeHeader() {
   const router = useRouter();
+  const { t } = useTranslation();
   const wallet = useAuthStore((s) => s.wallet);
-  const displayName = wallet ? truncateAddress(wallet.publicKey) : 'EsuStellar User';
+  const displayName = wallet ? truncateAddress(wallet.publicKey) : t('home.defaultUser');
 
   return (
     <View style={styles.header}>
       <View>
-        <Text style={styles.greeting}>{getGreeting()}</Text>
+        <Text style={styles.greeting}>{getGreeting(new Date().getHours(), t)}</Text>
         <Text style={styles.address}>{displayName}</Text>
       </View>
       <TouchableOpacity
-        accessibilityLabel="Notifications"
+        accessibilityLabel={t('home.notifications')}
         accessibilityRole="button"
         onPress={() => router.push('/notifications')}
         style={styles.bell}
@@ -38,15 +39,17 @@ function HomeHeader() {
 }
 
 export default function HomeScreen() {
+  const { t } = useTranslation();
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <HomeHeader />
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Total Balance</Text>
-        <Text style={styles.sectionValue}>— XLM</Text>
+        <Text style={styles.sectionLabel}>{t('home.totalBalance')}</Text>
+        <Text style={styles.sectionValue}>{t('home.balanceValue')}</Text>
       </View>
       <View style={styles.section}>
-        <Text style={styles.sectionLabel}>Quick Actions</Text>
+        <Text style={styles.sectionLabel}>{t('home.quickActions')}</Text>
       </View>
     </ScrollView>
   );
