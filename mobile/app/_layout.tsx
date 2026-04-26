@@ -1,25 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Slot, useRouter } from 'expo-router';
-import { NotificationBanner } from '../components/notifications/NotificationBanner';
-import { getRouteFromNotificationData } from '../services/notifications/notificationRouting';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   AppState,
   AppStateStatus,
-  Image,
   StyleSheet,
   Text,
   View,
-  ActivityIndicator,
 } from 'react-native';
-import { Slot, useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loadLanguage } from '../constants/i18n';
-import { biometricService } from '../services/security';
+import { NotificationBanner } from '../components/notifications/NotificationBanner';
+import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { useAutoLock } from '../hooks/useAutoLock';
+import { loadLanguage } from '../constants/i18n';
+import { getRouteFromNotificationData } from '../services/notifications/notificationRouting';
+import { biometricService } from '../services/security';
 
 const ONBOARDING_KEY = 'onboardingComplete';
 const BIOMETRIC_LOCK_KEY = 'biometricLockEnabled';
@@ -32,8 +28,9 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export default function RootLayout() {
+function RootLayoutContent() {
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
   const [checking, setChecking] = useState(true);
   const [banner, setBanner] = useState<{
     body?: string;
@@ -43,52 +40,50 @@ export default function RootLayout() {
   const [masked, setMasked] = useState(false);
   const [locked, setLocked] = useState(false);
   const router = useRouter();
-  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const { colors } = useTheme();
 
-  // ── Biometric unlock ────────────────────────────────────────────────────
-
-  const promptBiometric = async () => {
+  const promptBiometric = useCallback(async () => {
     const enabled = await AsyncStorage.getItem(BIOMETRIC_LOCK_KEY);
-    if (enabled !== 'true') return;
+
+    if (enabled !== 'true') {
+      return;
+    }
 
     const result = await biometricService.authenticate('Unlock EsuStellar');
+
     if (result.success) {
       setLocked(false);
     }
-    // If failed/cancelled, stay locked — user can retry by foregrounding again
-  };
-
-  // ── AppState listener ───────────────────────────────────────────────────
+  }, []);
 
   useEffect(() => {
-    const startTime = Date.now();
     const subscription = AppState.addEventListener(
       'change',
       async (nextState: AppStateStatus) => {
         const prev = appState.current;
         appState.current = nextState;
 
-        // Show overlay when going to background/inactive (#168)
         if (nextState === 'background' || nextState === 'inactive') {
           setMasked(true);
         }
 
-        // On foreground resume: remove overlay and trigger biometric lock (#165)
-        if (nextState === 'active' && (prev === 'background' || prev === 'inactive')) {
+        if (
+          nextState === 'active' &&
+          (prev === 'background' || prev === 'inactive')
+        ) {
           setMasked(false);
           const enabled = await AsyncStorage.getItem(BIOMETRIC_LOCK_KEY);
+
           if (enabled === 'true') {
             setLocked(true);
             await promptBiometric();
           }
         }
-      }
+      },
     );
 
     return () => subscription.remove();
-  }, []);
-
-  // ── Initial routing ─────────────────────────────────────────────────────
+  }, [promptBiometric]);
 
   useAutoLock(() => {
     router.replace('/wallet/connect');
@@ -97,28 +92,22 @@ export default function RootLayout() {
   useEffect(() => {
     let active = true;
 
-    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
+    const initialize = async () => {
+      await loadLanguage();
+
+      const onboardingComplete = await AsyncStorage.getItem(ONBOARDING_KEY);
+
       if (!active) {
         return;
       }
 
-    async function initialize() {
-      await loadLanguage();
-
-      const value = await AsyncStorage.getItem(ONBOARDING_KEY);
-      if (value === 'true') {
-        router.replace('/wallet/connect');
-      } else {
-        router.replace('/onboarding');
-      }
-
+      router.replace(
+        onboardingComplete === 'true' ? '/wallet/connect' : '/onboarding',
+      );
       setChecking(false);
+    };
 
-      const endTime = Date.now();
-      const startupTime = endTime - startTime;
-      console.log(`App startup time: ${startupTime}ms`);
-      // Optionally send to analytics
-    });
+    void initialize();
 
     return () => {
       active = false;
@@ -132,9 +121,6 @@ export default function RootLayout() {
     }
 
     setBanner(null);
-    }
-
-    initialize();
   }, []);
 
   const navigateFromNotification = useCallback(
@@ -142,7 +128,7 @@ export default function RootLayout() {
       dismissBanner();
       router.push(getRouteFromNotificationData(data) as never);
     },
-    [dismissBanner, router]
+    [dismissBanner, router],
   );
 
   const showBanner = useCallback((notification: Notifications.Notification) => {
@@ -168,12 +154,12 @@ export default function RootLayout() {
     const receivedSubscription = Notifications.addNotificationReceivedListener(
       (notification) => {
         showBanner(notification);
-      }
+      },
     );
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener((response) => {
         navigateFromNotification(
-          response.notification.request.content.data as Record<string, unknown>
+          response.notification.request.content.data as Record<string, unknown>,
         );
       });
 
@@ -183,7 +169,7 @@ export default function RootLayout() {
       }
 
       navigateFromNotification(
-        response.notification.request.content.data as Record<string, unknown>
+        response.notification.request.content.data as Record<string, unknown>,
       );
     });
 
@@ -199,15 +185,16 @@ export default function RootLayout() {
 
   if (checking) {
     return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#6C63FF" />
+      <View style={[styles.loader, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <View style={styles.appShell}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <Slot />
+
       <NotificationBanner
         body={banner?.body}
         title={banner?.title ?? ''}
@@ -215,17 +202,13 @@ export default function RootLayout() {
         onDismiss={dismissBanner}
         onPress={() => navigateFromNotification(banner?.data)}
       />
-    <View style={styles.root}>
-      <Slot />
 
-      {/* App-switcher mask overlay (#168) */}
       {masked && (
         <View style={styles.overlay} pointerEvents="none">
           <Text style={styles.overlayText}>EsuStellar</Text>
         </View>
       )}
 
-      {/* Biometric lock screen (#165) */}
       {locked && (
         <View style={styles.overlay}>
           <Text style={styles.overlayText}>EsuStellar</Text>
@@ -238,8 +221,15 @@ export default function RootLayout() {
   );
 }
 
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootLayoutContent />
+    </ThemeProvider>
+  );
+}
+
 const styles = StyleSheet.create({
-  appShell: {
   root: {
     flex: 1,
   },
@@ -247,7 +237,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -257,7 +246,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   overlayText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 28,
     fontWeight: '700',
     letterSpacing: 1,
