@@ -54,8 +54,7 @@ export const useAuthStore = create<AuthState>()(
       session: { ...initialSession },
       colorScheme: 'system',
 
-      setWallet: (wallet) =>
-        set({ wallet }),
+      setWallet: (wallet) => set({ wallet }),
 
       setSession: (partial) =>
         set((state) => ({

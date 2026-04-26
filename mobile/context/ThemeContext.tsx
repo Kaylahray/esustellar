@@ -1,9 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useColorScheme } from 'react-native';
-import {
-  ColorSchemePreference,
-  useAuthStore,
-} from '../store/authStore';
+import { ColorSchemePreference, useAuthStore } from '../store/authStore';
 
 export type ResolvedColorScheme = 'dark' | 'light';
 
@@ -61,8 +58,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const resolvedColorScheme = resolveColorScheme(colorScheme, systemScheme);
 
-  const colors =
-    resolvedColorScheme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
+  const colors = resolvedColorScheme === 'dark' ? DARK_COLORS : LIGHT_COLORS;
 
   const value = useMemo(
     () => ({
@@ -74,7 +70,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [colorScheme, colors, resolvedColorScheme, setColorScheme],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {

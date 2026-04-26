@@ -40,12 +40,14 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 
 const BIOMETRIC_LOCK_KEY = 'biometricLockEnabled';
-const WALLET_ADDRESS = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+const WALLET_ADDRESS =
+  'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { colorScheme, colors, resolvedColorScheme, setColorScheme } = useTheme();
+  const { colorScheme, colors, resolvedColorScheme, setColorScheme } =
+    useTheme();
 
   const [biometricCap, setBiometricCap] = useState<BiometricCapability>({
     status: SecurityStatus.UNKNOWN,
@@ -140,7 +142,7 @@ export default function SettingsScreen() {
     const result = await biometricService.authenticate(
       securityPreferences.biometricEnabled
         ? 'Disable biometrics'
-        : 'Enable biometrics'
+        : 'Enable biometrics',
     );
 
     setAuthenticating(false);
@@ -201,26 +203,44 @@ export default function SettingsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
         <Text style={{ color: colors.text }}>Loading...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+    >
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
 
         {/* Wallet */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.valueText, { color: colors.text }]}>{WALLET_ADDRESS}</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.valueText, { color: colors.text }]}>
+            {WALLET_ADDRESS}
+          </Text>
           <Button onPress={handleCopy}>Copy</Button>
         </View>
 
         {/* Language */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Language</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Language
+          </Text>
           {languageOptions.map((opt) => (
             <Button
               key={opt.value}
@@ -232,12 +252,21 @@ export default function SettingsScreen() {
               {opt.label}
             </Button>
           ))}
-          <Text style={[styles.helperText, { color: colors.subtext }]}>Current: {language.toUpperCase()}</Text>
+          <Text style={[styles.helperText, { color: colors.subtext }]}>
+            Current: {language.toUpperCase()}
+          </Text>
         </View>
 
         {/* Appearance */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Appearance</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Appearance
+          </Text>
           <View style={styles.row}>
             {(['dark', 'light', 'system'] as const).map((option) => {
               const selected = colorScheme === option;
@@ -260,18 +289,31 @@ export default function SettingsScreen() {
                     },
                   ]}
                 >
-                  <Text style={{ color: selected ? '#FFFFFF' : colors.text }}>{label}</Text>
+                  <Text style={{ color: selected ? '#FFFFFF' : colors.text }}>
+                    {label}
+                  </Text>
                 </Pressable>
               );
             })}
           </View>
-          <Text style={[styles.helperText, { color: colors.subtext }]}>Active mode: {resolvedColorScheme}</Text>
+          <Text style={[styles.helperText, { color: colors.subtext }]}>
+            Active mode: {resolvedColorScheme}
+          </Text>
         </View>
 
         {/* Biometrics */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Biometric Authentication</Text>
-          <Text style={[styles.helperText, { color: colors.subtext }]}>Supported: {supportedLabel}</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Biometric Authentication
+          </Text>
+          <Text style={[styles.helperText, { color: colors.subtext }]}>
+            Supported: {supportedLabel}
+          </Text>
 
           <Button onPress={handleBiometricToggle} disabled={authenticating}>
             {securityPreferences.biometricEnabled ? 'Disable' : 'Enable'}
@@ -279,8 +321,15 @@ export default function SettingsScreen() {
         </View>
 
         {/* Simple Lock Toggle */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Biometric Lock</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Biometric Lock
+          </Text>
           <Switch
             value={biometricEnabledLocal}
             onValueChange={handleLocalToggle}
@@ -288,12 +337,19 @@ export default function SettingsScreen() {
         </View>
 
         {/* PIN */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <Text style={[styles.sectionTitle, { color: colors.text }]}>PIN</Text>
 
           {pinSet ? (
             <>
-              <Button onPress={() => router.push('/security/enter-pin?mode=change')}>
+              <Button
+                onPress={() => router.push('/security/enter-pin?mode=change')}
+              >
                 Change PIN
               </Button>
               <Button onPress={handleRemovePin}>Remove PIN</Button>
@@ -312,8 +368,15 @@ export default function SettingsScreen() {
         </View>
 
         {/* About */}
-        <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.helperText, { color: colors.subtext }]}>Version: {Constants.expoConfig?.version}</Text>
+        <View
+          style={[
+            styles.section,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.helperText, { color: colors.subtext }]}>
+            Version: {Constants.expoConfig?.version}
+          </Text>
         </View>
 
         {message && <Text style={{ color: colors.text }}>{message}</Text>}
