@@ -1,25 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Slot, useRouter } from 'expo-router';
-import { NotificationBanner } from '../components/notifications/NotificationBanner';
-import { getRouteFromNotificationData } from '../services/notifications/notificationRouting';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   AppState,
   AppStateStatus,
-  Image,
   StyleSheet,
   Text,
   View,
-  ActivityIndicator,
 } from 'react-native';
-import { Slot, useRouter } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+import { NotificationBanner } from '../components/notifications/NotificationBanner';
 import { loadLanguage } from '../constants/i18n';
-import { biometricService } from '../services/security';
 import { useAutoLock } from '../hooks/useAutoLock';
+import { biometricService } from '../services/security';
+import { getRouteFromNotificationData } from '../services/notifications/notificationRouting';
 
 const ONBOARDING_KEY = 'onboardingComplete';
 const BIOMETRIC_LOCK_KEY = 'biometricLockEnabled';
@@ -61,7 +57,6 @@ export default function RootLayout() {
   // ── AppState listener ───────────────────────────────────────────────────
 
   useEffect(() => {
-    const startTime = Date.now();
     const subscription = AppState.addEventListener(
       'change',
       async (nextState: AppStateStatus) => {
@@ -95,14 +90,8 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    let active = true;
-
-    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
-      if (!active) {
-        return;
-      }
-
     async function initialize() {
+      const startTime = Date.now();
       await loadLanguage();
 
       const value = await AsyncStorage.getItem(ONBOARDING_KEY);
@@ -117,30 +106,28 @@ export default function RootLayout() {
       const endTime = Date.now();
       const startupTime = endTime - startTime;
       console.log(`App startup time: ${startupTime}ms`);
-      // Optionally send to analytics
-    });
+    }
 
-    return () => {
-      active = false;
-    };
+    initialize();
   }, [router]);
+
+  // ── Notifications ───────────────────────────────────────────────────────
 
   const dismissBanner = useCallback(() => {
     if (bannerTimerRef.current) {
       clearTimeout(bannerTimerRef.current);
       bannerTimerRef.current = null;
     }
-
     setBanner(null);
-    }
-
-    initialize();
   }, []);
 
   const navigateFromNotification = useCallback(
     (data?: Record<string, unknown>) => {
       dismissBanner();
-      router.push(getRouteFromNotificationData(data) as never);
+      const route = getRouteFromNotificationData(data);
+      if (route) {
+        router.push(route as any);
+      }
     },
     [dismissBanner, router]
   );
@@ -178,10 +165,7 @@ export default function RootLayout() {
       });
 
     void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) {
-        return;
-      }
-
+      if (!response) return;
       navigateFromNotification(
         response.notification.request.content.data as Record<string, unknown>
       );
@@ -190,7 +174,6 @@ export default function RootLayout() {
     return () => {
       receivedSubscription.remove();
       responseSubscription.remove();
-
       if (bannerTimerRef.current) {
         clearTimeout(bannerTimerRef.current);
       }
@@ -206,40 +189,40 @@ export default function RootLayout() {
   }
 
   return (
-    <View style={styles.appShell}>
-      <Slot />
-      <NotificationBanner
-        body={banner?.body}
-        title={banner?.title ?? ''}
-        visible={Boolean(banner)}
-        onDismiss={dismissBanner}
-        onPress={() => navigateFromNotification(banner?.data)}
-      />
-    <View style={styles.root}>
-      <Slot />
+    <ErrorBoundary>
+      <View style={styles.root}>
+        <Slot />
 
-      {/* App-switcher mask overlay (#168) */}
-      {masked && (
-        <View style={styles.overlay} pointerEvents="none">
-          <Text style={styles.overlayText}>EsuStellar</Text>
-        </View>
-      )}
+        <NotificationBanner
+          body={banner?.body}
+          title={banner?.title ?? ''}
+          visible={Boolean(banner)}
+          onDismiss={dismissBanner}
+          onPress={() => navigateFromNotification(banner?.data)}
+        />
 
-      {/* Biometric lock screen (#165) */}
-      {locked && (
-        <View style={styles.overlay}>
-          <Text style={styles.overlayText}>EsuStellar</Text>
-          <Text style={styles.lockHint} onPress={promptBiometric}>
-            Tap to unlock
-          </Text>
-        </View>
-      )}
-    </View>
+        {/* App-switcher mask overlay (#168) */}
+        {masked && (
+          <View style={styles.overlay} pointerEvents="none">
+            <Text style={styles.overlayText}>EsuStellar</Text>
+          </View>
+        )}
+
+        {/* Biometric lock screen (#165) */}
+        {locked && (
+          <View style={styles.overlay}>
+            <Text style={styles.overlayText}>EsuStellar</Text>
+            <Text style={styles.lockHint} onPress={promptBiometric}>
+              Tap to unlock
+            </Text>
+          </View>
+        )}
+      </View>
+    </ErrorBoundary>
   );
 }
 
 const styles = StyleSheet.create({
-  appShell: {
   root: {
     flex: 1,
   },
